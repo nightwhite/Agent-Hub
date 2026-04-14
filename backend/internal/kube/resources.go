@@ -17,7 +17,12 @@ type ResourceObjects struct {
 
 func Build(agentSpec agent.Agent, ingressDomain, image string) (ResourceObjects, error) {
 	labels := Labels(agentSpec.Name)
-	annotations := Annotations(agentSpec.AliasName, agentSpec.ModelProvider, agentSpec.ModelBaseURL, agentSpec.Model)
+	selectorLabels := managedSelectorLabels(agentSpec.Name)
+	devboxAnnotations := cloneStringMap(Annotations(agentSpec.AliasName, agentSpec.ModelProvider, agentSpec.ModelBaseURL, agentSpec.Model))
+	serviceAnnotations := cloneStringMap(devboxAnnotations)
+	ingressAnnotations := cloneStringMap(devboxAnnotations)
+	devboxLabels := cloneStringMap(labels)
+	serviceLabels := cloneStringMap(labels)
 
 	devboxObject := map[string]any{
 		"apiVersion": "devbox.sealos.io/v1alpha2",
@@ -25,8 +30,8 @@ func Build(agentSpec agent.Agent, ingressDomain, image string) (ResourceObjects,
 		"metadata": map[string]any{
 			"name":        agentSpec.Name,
 			"namespace":   agentSpec.Namespace,
-			"labels":      labels,
-			"annotations": annotations,
+			"labels":      devboxLabels,
+			"annotations": devboxAnnotations,
 		},
 		"spec": map[string]any{
 			"image":            image,
@@ -44,9 +49,7 @@ func Build(agentSpec agent.Agent, ingressDomain, image string) (ResourceObjects,
 				"memory": agentSpec.Memory,
 			},
 			"config": map[string]any{
-				"labels": map[string]any{
-					"app": agentSpec.Name,
-				},
+				"labels":     stringMapToAnyMap(cloneStringMap(selectorLabels)),
 				"user":       "node",
 				"workingDir": "/opt/hermes",
 				"appPorts": []any{map[string]any{
@@ -75,11 +78,11 @@ func Build(agentSpec agent.Agent, ingressDomain, image string) (ResourceObjects,
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        agentSpec.Name,
 			Namespace:   agentSpec.Namespace,
-			Labels:      labels,
-			Annotations: annotations,
+			Labels:      serviceLabels,
+			Annotations: serviceAnnotations,
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{"app": agentSpec.Name},
+			Selector: selectorLabels,
 			Ports: []corev1.ServicePort{{
 				Name:       "api",
 				Port:       8642,
@@ -90,7 +93,7 @@ func Build(agentSpec agent.Agent, ingressDomain, image string) (ResourceObjects,
 	}
 
 	pathType := networkingv1.PathTypePrefix
-	ingressLabels := Labels(agentSpec.Name)
+	ingressLabels := cloneStringMap(labels)
 	ingressLabels["cloud.sealos.io/app-deploy-manager"] = agentSpec.Name
 	ingressLabels["cloud.sealos.io/app-deploy-manager-domain"] = ingressDomain
 	ingress := &networkingv1.Ingress{
@@ -99,7 +102,7 @@ func Build(agentSpec agent.Agent, ingressDomain, image string) (ResourceObjects,
 			Name:        agentSpec.Name,
 			Namespace:   agentSpec.Namespace,
 			Labels:      ingressLabels,
-			Annotations: annotations,
+			Annotations: ingressAnnotations,
 		},
 		Spec: networkingv1.IngressSpec{
 			IngressClassName: stringPtr("nginx"),
@@ -142,4 +145,26 @@ func Build(agentSpec agent.Agent, ingressDomain, image string) (ResourceObjects,
 
 func stringPtr(v string) *string {
 	return &v
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	cloned := make(map[string]string, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func stringMapToAnyMap(input map[string]string) map[string]any {
+	result := make(map[string]any, len(input))
+	for key, value := range input {
+		result[key] = value
+	}
+	return result
+}
+
+func managedSelectorLabels(agentName string) map[string]string {
+	return map[string]string{
+		"agent.sealos.io/name": agentName,
+	}
 }

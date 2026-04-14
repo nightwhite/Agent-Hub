@@ -2,6 +2,11 @@
 
 这份文档给前端联调用，覆盖本地启动、鉴权头生成、基础 REST API 使用方式和错误响应约定。
 
+如果只需要最短执行清单，先看：
+
+- [frontend-checklist.md](/Users/sealos/Agent-Hub/backend/api/frontend-checklist.md)
+- [frontend-live-examples.md](/Users/sealos/Agent-Hub/backend/api/frontend-live-examples.md)
+
 ## 1. 本地启动
 
 在 `backend/` 目录执行：
@@ -22,6 +27,10 @@ http://127.0.0.1:8080
 curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
 ```
+
+说明：
+- `healthz` 仅表示进程存活
+- `readyz` 当前只检查静态运行配置是否完整，不验证请求级 Kubernetes 可用性
 
 ## 2. Authorization 头
 
@@ -64,14 +73,44 @@ Authorization: ${encodedKubeconfig}
 - `DELETE /api/v1/agents/:agentName`
 - `POST /api/v1/agents/:agentName/run`
 - `POST /api/v1/agents/:agentName/pause`
-- `GET /api/v1/agents/:agentName/key`
 - `POST /api/v1/agents/:agentName/key/rotate`
 
-WebSocket 接口已预留但当前不作为前端主联调目标：
+当前明确不要接入的 HTTP 端点：
+
+- `GET /api/v1/agents/:agentName/key`
+  当前固定返回 `501`
+  不允许前端读取明文 key
+
+WebSocket 当前也可联调：
 
 - `GET /api/v1/agents/:agentName/ws`
+- 支持 terminal、logs、file operations
+- 推荐浏览器流程：
+  1. 先连接 WS
+  2. 第一条消息发送 `auth`
+- 兼容方式：
+  - `/api/v1/agents/:agentName/ws?authorization=<url-encoded-kubeconfig>`
 
 ## 4. 统一响应格式
+
+### `GET /readyz` 当前返回形状
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "requestId": "xxx",
+  "data": {
+    "status": "ready",
+    "checks": {
+      "port": "ok",
+      "ingressSuffix": "ok",
+      "apiServerImage": "ok",
+      "kubernetes": "request_scoped"
+    }
+  }
+}
+```
 
 ### 成功响应
 
@@ -110,6 +149,7 @@ WebSocket 接口已预留但当前不作为前端主联调目标：
 - `error.type` 用于机器判断
 - `error.details` 当前主要出现在鉴权错误和字段校验错误里
 - `requestId` 要保留，便于后端排查
+- 非法 `X-Request-Id` 会被后端丢弃并重新生成
 
 ## 5. 常见状态码和错误码
 
@@ -154,14 +194,14 @@ WebSocket 接口已预留但当前不作为前端主联调目标：
   "hasModelAPIKey": false,
   "ingressDomain": "xxx-agent.usw-1.sealos.app",
   "apiBaseURL": "https://xxx-agent.usw-1.sealos.app/v1",
-  "createdAt": "2026-04-14T03:05:59Z",
-  "updatedAt": "2026-04-14T03:05:59Z"
+  "createdAt": "2026-04-14T03:05:59Z"
 }
 ```
 
 ### 前端特别注意
 
-- `status` 当前只对外暴露 `Running` 和 `Paused`
+- `status` 主要稳定状态是 `Running` 和 `Paused`
+- 在资源创建、删除或异常场景下，也可能出现 `Creating`、`Starting`、`Stopping`、`Updating`、`Deleting`、`Failed`
 - `cpu` 在不同接口里可能出现 `1000m` 或 `1`，这是 Kubernetes quantity 标准化行为，含义等价
 - `apiBaseURL` 由 ingress host 自动派生
 - `hasModelAPIKey` 只表示是否已配置，不会返回真实 key
@@ -240,15 +280,7 @@ curl -s -X POST \
   http://127.0.0.1:8080/api/v1/agents/demo-agent/run
 ```
 
-### 7.7 读取 key
-
-```bash
-curl -s \
-  -H "Authorization: $KCFG_ENCODED" \
-  http://127.0.0.1:8080/api/v1/agents/demo-agent/key
-```
-
-### 7.8 轮换 key
+### 7.7 轮换 key
 
 ```bash
 curl -s -X POST \
@@ -256,7 +288,37 @@ curl -s -X POST \
   http://127.0.0.1:8080/api/v1/agents/demo-agent/key/rotate
 ```
 
-### 7.9 删除
+返回只表示轮换成功，不会回显真实 key。
+
+### 7.7.1 读取 key
+
+这个端点当前不要接入前端：
+
+```bash
+curl -s \
+  -H "Authorization: $KCFG_ENCODED" \
+  http://127.0.0.1:8080/api/v1/agents/demo-agent/key
+```
+
+实际会返回：
+
+```json
+{
+  "code": 50100,
+  "message": "agent key readback is disabled",
+  "requestId": "xxx",
+  "error": {
+    "type": "not_implemented",
+    "details": {
+      "endpoint": "agent_key_read",
+      "reason": "sensitive_key_readback_disabled"
+    }
+  },
+  "data": null
+}
+```
+
+### 7.8 删除
 
 ```bash
 curl -s -X DELETE \
@@ -269,24 +331,43 @@ curl -s -X DELETE \
 这套基础 REST API 已经用本地 `~/.kube/config` 在真实集群上验证通过：
 
 - 健康检查
+- readyz 静态配置检查
 - 列表
 - 创建
 - 详情
 - PATCH 更新
-- 读取 key
+- GET key 返回 501
 - 轮换 key
 - pause
 - run
 - 删除
 - 删除后再次查询返回 404
 - 非法请求返回 422 且带结构化 `error.details`
+- WS `system.ready`
+- WS `file.write/read/delete`
+- WS `terminal.open/input/close`
+- WS `log.subscribe/unsubscribe`
 
-## 9. 当前不做的事
+## 9. WebSocket 联调说明
+
+当前支持的 WS 消息能力：
+
+- `terminal.open/input/resize/close`
+- `log.subscribe/unsubscribe`
+- `file.list/read/download/write/delete/mkdir`
+- `file.upload.begin/chunk/end`
+
+详细协议见：
+
+- [websocket.md](/Users/sealos/Agent-Hub/backend/api/websocket.md)
+
+## 10. 当前不做的事
 
 前端当前阶段先不要依赖：
 
-- WebSocket 终端能力
-- WebSocket 日志流能力
-- WebSocket 文件能力
+- 明文 key 读取
+- 结构化文件列表返回
+- 二进制文件上传/下载分片协议
+- 多终端 / 多日志订阅并发
 
 这些接口后续会补，但当前联调重点是基础 REST 管理面。

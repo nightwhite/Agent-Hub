@@ -38,7 +38,6 @@ type AgentItem struct {
 	IngressDomain  string `json:"ingressDomain,omitempty"`
 	APIBaseURL     string `json:"apiBaseURL,omitempty"`
 	CreatedAt      string `json:"createdAt,omitempty"`
-	UpdatedAt      string `json:"updatedAt,omitempty"`
 }
 
 type AgentListResponse struct {
@@ -52,11 +51,10 @@ type AgentDetailResponse struct {
 }
 
 type CreateAgentResponse struct {
-	Agent        AgentItem `json:"agent"`
-	APIServerKey string    `json:"apiServerKey"`
+	Agent AgentItem `json:"agent"`
 }
 
-type AgentKeyResponse struct {
-	AgentName    string `json:"agentName"`
-	APIServerKey string `json:"apiServerKey"`
+type AgentKeyRotateResponse struct {
+	AgentName string `json:"agentName"`
+	Rotated   bool   `json:"rotated"`
 }

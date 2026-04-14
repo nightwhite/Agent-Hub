@@ -24,6 +24,10 @@ func NewRepository(client dynamic.Interface, namespace string) *Repository {
 	return &Repository{client: client, namespace: namespace}
 }
 
+func ResourceGVR() schema.GroupVersionResource {
+	return gvr
+}
+
 func (r *Repository) List(ctx context.Context, labelSelector string) (*unstructured.UnstructuredList, error) {
 	return r.client.Resource(gvr).Namespace(r.namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
 }

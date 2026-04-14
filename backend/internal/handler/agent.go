@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -17,17 +16,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	kubernetes "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/nightwhite/Agent-Hub/internal/agent"
 	"github.com/nightwhite/Agent-Hub/internal/dto"
 	"github.com/nightwhite/Agent-Hub/internal/kube"
 	"github.com/nightwhite/Agent-Hub/internal/random"
+	agentws "github.com/nightwhite/Agent-Hub/internal/ws"
 	appErr "github.com/nightwhite/Agent-Hub/pkg/errors"
 )
-
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
 
 func ListAgents(c *gin.Context) {
 	factory, err := kubeFactory(c)
@@ -167,8 +164,7 @@ func CreateAgent(c *gin.Context) {
 	view.Agent.IngressDomain = kube.IngressDomain(createdIngress)
 
 	writeSuccess(c, http.StatusCreated, dto.CreateAgentResponse{
-		Agent:        toAgentItem(view),
-		APIServerKey: apiServerKey,
+		Agent: toAgentItem(view),
 	})
 }
 
@@ -224,27 +220,18 @@ func UpdateAgent(c *gin.Context) {
 	if !ok {
 		return
 	}
-	devbox, svc, ing, found := getResources(ctx, factory.Namespace(), agentName, repo, clientset, c)
-	if !found {
-		return
-	}
-
-	applyUpdateToDevbox(devbox, req)
-	applyUpdateToService(svc, req)
-	applyUpdateToIngress(ing, req)
-
-	updatedDevbox, kErr := repo.Update(ctx, devbox)
+	updatedDevbox, kErr := retryUpdateDevbox(ctx, repo, agentName, req)
 	if kErr != nil {
 		writeKubernetesError(c, kErr, "failed to update devbox")
 		return
 	}
-	if _, err := clientset.CoreV1().Services(factory.Namespace()).Update(ctx, svc, metav1.UpdateOptions{}); err != nil {
+	if err := retryUpdateService(ctx, clientset, factory.Namespace(), agentName, req); err != nil {
 		writeKubernetesError(c, err, "failed to update service")
 		return
 	}
-	updatedIngress, kErr := clientset.NetworkingV1().Ingresses(factory.Namespace()).Update(ctx, ing, metav1.UpdateOptions{})
-	if kErr != nil {
-		writeKubernetesError(c, kErr, "failed to update ingress")
+	updatedIngress, ingressErr := retryUpdateIngress(ctx, clientset, factory.Namespace(), agentName, req)
+	if ingressErr != nil {
+		writeKubernetesError(c, ingressErr, "failed to update ingress")
 		return
 	}
 
@@ -256,6 +243,58 @@ func UpdateAgent(c *gin.Context) {
 	view.Agent.IngressDomain = kube.IngressDomain(updatedIngress)
 
 	writeSuccess(c, http.StatusOK, dto.AgentDetailResponse{Agent: toAgentItem(view)})
+}
+
+func retryUpdateDevbox(ctx context.Context, repo *kube.Repository, agentName string, req dto.UpdateAgentRequest) (*unstructured.Unstructured, error) {
+	var updated *unstructured.Unstructured
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		devbox, getErr := repo.Get(ctx, agentName)
+		if getErr != nil {
+			return getErr
+		}
+		if !kube.HasManagedLabel(devbox.GetLabels(), agentName) {
+			return apierrors.NewNotFound(kube.ResourceGVR().GroupResource(), agentName)
+		}
+
+		applyUpdateToDevbox(devbox, req)
+		next, updateErr := repo.Update(ctx, devbox)
+		if updateErr != nil {
+			return updateErr
+		}
+		updated = next
+		return nil
+	})
+	return updated, err
+}
+
+func retryUpdateService(ctx context.Context, clientset *kubernetes.Clientset, namespace, agentName string, req dto.UpdateAgentRequest) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		service, err := clientset.CoreV1().Services(namespace).Get(ctx, agentName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		applyUpdateToService(service, req)
+		_, err = clientset.CoreV1().Services(namespace).Update(ctx, service, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+func retryUpdateIngress(ctx context.Context, clientset *kubernetes.Clientset, namespace, agentName string, req dto.UpdateAgentRequest) (*networkingv1.Ingress, error) {
+	var updated *networkingv1.Ingress
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		ingress, err := clientset.NetworkingV1().Ingresses(namespace).Get(ctx, agentName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		applyUpdateToIngress(ingress, req)
+		next, updateErr := clientset.NetworkingV1().Ingresses(namespace).Update(ctx, ingress, metav1.UpdateOptions{})
+		if updateErr != nil {
+			return updateErr
+		}
+		updated = next
+		return nil
+	})
+	return updated, err
 }
 
 func DeleteAgent(c *gin.Context) {
@@ -308,31 +347,10 @@ func PauseAgent(c *gin.Context) {
 }
 
 func GetAgentKey(c *gin.Context) {
-	factory, err := kubeFactory(c)
-	if err != nil {
-		writeHeaderKubeconfigError(c, err)
-		return
-	}
-	agentName := c.Param("agentName")
-	if err := validateAgentName(agentName); err != nil {
-		writeValidationError(c, err)
-		return
-	}
-
-	ctx := c.Request.Context()
-	repo, clientset, ok := newClients(c, factory)
-	if !ok {
-		return
-	}
-	view, found := getAgentView(ctx, factory.Namespace(), agentName, repo, clientset, c)
-	if !found {
-		return
-	}
-
-	writeSuccess(c, http.StatusOK, dto.AgentKeyResponse{
-		AgentName:    agentName,
-		APIServerKey: view.Agent.APIServerKey,
-	})
+	writeAppError(c, http.StatusNotImplemented, appErr.New(appErr.CodeNotImplemented, "agent key readback is disabled").WithDetails(map[string]any{
+		"endpoint": "agent_key_read",
+		"reason":   "sensitive_key_readback_disabled",
+	}))
 }
 
 func RotateAgentKey(c *gin.Context) {
@@ -371,57 +389,11 @@ func RotateAgentKey(c *gin.Context) {
 		return
 	}
 
-	writeSuccess(c, http.StatusOK, dto.AgentKeyResponse{AgentName: agentName, APIServerKey: newKey})
+	writeSuccess(c, http.StatusOK, dto.AgentKeyRotateResponse{AgentName: agentName, Rotated: true})
 }
 
 func AgentWebSocket(c *gin.Context) {
-	factory, err := kubeFactory(c)
-	if err != nil {
-		writeHeaderKubeconfigError(c, err)
-		return
-	}
-	agentName := c.Param("agentName")
-	if err := validateAgentName(agentName); err != nil {
-		writeValidationError(c, err)
-		return
-	}
-
-	ctx := c.Request.Context()
-	repo, clientset, ok := newClients(c, factory)
-	if !ok {
-		return
-	}
-	if _, found := getAgentView(ctx, factory.Namespace(), agentName, repo, clientset, c); !found {
-		return
-	}
-
-	conn, wsErr := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if wsErr != nil {
-		return
-	}
-	defer conn.Close()
-
-	_ = conn.WriteJSON(dto.WSMessage{
-		Type:      "system.ready",
-		RequestID: requestID(c),
-		Data: map[string]any{
-			"agentName": agentName,
-			"namespace": factory.Namespace(),
-			"message":   "websocket connected; terminal/log/file protocol pending implementation",
-		},
-	})
-
-	for {
-		var message dto.WSMessage
-		if err := conn.ReadJSON(&message); err != nil {
-			break
-		}
-		if message.Type == "ping" {
-			_ = conn.WriteJSON(dto.WSMessage{Type: "pong", RequestID: message.RequestID})
-			continue
-		}
-		_ = conn.WriteJSON(dto.WSMessage{Type: "error", RequestID: message.RequestID, Data: map[string]any{"message": "websocket message handling not implemented yet"}})
-	}
+	agentws.Handler{Config: runtimeConfig(c)}.Serve(c, requestID(c))
 }
 
 func newClients(c *gin.Context, factory *kube.Factory) (*kube.Repository, *kubernetes.Clientset, bool) {
@@ -503,7 +475,6 @@ func toAgentItem(view kube.AgentView) dto.AgentItem {
 		IngressDomain:  view.Agent.IngressDomain,
 		APIBaseURL:     kube.APIBaseURL(view.Agent.IngressDomain),
 		CreatedAt:      view.CreatedAt,
-		UpdatedAt:      view.UpdatedAt,
 	}
 }
 

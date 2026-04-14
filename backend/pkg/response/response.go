@@ -1,6 +1,7 @@
 package response
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 
@@ -37,9 +38,21 @@ func Success(requestID string, data any) Envelope {
 }
 
 func WriteJSON(w http.ResponseWriter, status int, payload Envelope) {
+	var body bytes.Buffer
+	if err := json.NewEncoder(&body).Encode(payload); err != nil {
+		fallback := Envelope{
+			Code:    http.StatusInternalServerError,
+			Message: "internal server error",
+			Data:    nil,
+		}
+		body.Reset()
+		_ = json.NewEncoder(&body).Encode(fallback)
+		status = http.StatusInternalServerError
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	_, _ = w.Write(body.Bytes())
 }
 
 func WriteGinJSON(c *gin.Context, status int, payload Envelope) {

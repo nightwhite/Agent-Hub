@@ -14,7 +14,6 @@ import (
 type AgentView struct {
 	Agent     agent.Agent
 	CreatedAt string
-	UpdatedAt string
 }
 
 func DevboxToAgentView(devbox *unstructured.Unstructured) (AgentView, error) {
@@ -30,10 +29,8 @@ func DevboxToAgentView(devbox *unstructured.Unstructured) (AgentView, error) {
 
 	annotations := devbox.GetAnnotations()
 	createdAt := devbox.GetCreationTimestamp().Format(time.RFC3339)
-	updatedAt := createdAt
 	if ts, found, _ := unstructured.NestedString(devbox.Object, "metadata", "creationTimestamp"); found && strings.TrimSpace(ts) != "" {
 		createdAt = ts
-		updatedAt = ts
 	}
 
 	cpu, _, _ := unstructured.NestedString(devbox.Object, "spec", "resource", "cpu")
@@ -57,7 +54,6 @@ func DevboxToAgentView(devbox *unstructured.Unstructured) (AgentView, error) {
 			Status:        stateToStatus(state),
 		},
 		CreatedAt: createdAt,
-		UpdatedAt: updatedAt,
 	}
 
 	return view, nil
@@ -83,10 +79,24 @@ func APIBaseURL(host string) string {
 
 func stateToStatus(state string) agent.Status {
 	switch strings.TrimSpace(strings.ToLower(state)) {
+	case "creating":
+		return agent.StatusCreating
 	case "running":
 		return agent.StatusRunning
-	default:
+	case "paused", "stopped":
 		return agent.StatusPaused
+	case "starting":
+		return agent.StatusStarting
+	case "stopping":
+		return agent.StatusStopping
+	case "updating":
+		return agent.StatusUpdating
+	case "deleting":
+		return agent.StatusDeleting
+	case "failed":
+		return agent.StatusFailed
+	default:
+		return agent.StatusFailed
 	}
 }
 

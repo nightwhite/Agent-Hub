@@ -65,6 +65,13 @@ func TestReadyzReturnsStandardEnvelope(t *testing.T) {
 	if status := body.Data["status"]; status != "ready" {
 		t.Fatalf("GET /readyz data.status = %#v, want ready", status)
 	}
+	checks, ok := body.Data["checks"].(map[string]any)
+	if !ok {
+		t.Fatalf("GET /readyz data.checks = %#v, want checks map", body.Data["checks"])
+	}
+	if checks["kubernetes"] != "request_scoped" {
+		t.Fatalf("GET /readyz data.checks.kubernetes = %#v, want request_scoped", checks["kubernetes"])
+	}
 }
 
 func TestListAgentsRequiresAuthorization(t *testing.T) {
@@ -193,6 +200,51 @@ func TestPauseRouteReplacesStopRoute(t *testing.T) {
 	pauseRecorder := performRequest(t, http.MethodPost, "/api/v1/agents/demo-agent/pause", "", "", nil)
 	if pauseRecorder.Code != http.StatusUnauthorized {
 		t.Fatalf("POST /api/v1/agents/:agentName/pause status = %d, want %d", pauseRecorder.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestInvalidRequestIDHeaderIsRegenerated(t *testing.T) {
+	t.Parallel()
+
+	recorder := performRequest(t, http.MethodGet, "/healthz", "", "", map[string]string{
+		"X-Request-Id": "bad id with spaces",
+	})
+
+	body := decodeEnvelope(t, recorder)
+	if body.RequestID == "bad id with spaces" {
+		t.Fatal("invalid X-Request-Id should be replaced")
+	}
+	if header := recorder.Header().Get("X-Request-Id"); header != body.RequestID {
+		t.Fatalf("response X-Request-Id = %q, want %q", header, body.RequestID)
+	}
+}
+
+func TestAgentKeyReadbackEndpointIsDisabled(t *testing.T) {
+	t.Parallel()
+
+	recorder := performRequest(t, http.MethodGet, "/api/v1/agents/demo-agent/key", "", "", nil)
+	if recorder.Code != http.StatusNotImplemented {
+		t.Fatalf("GET /api/v1/agents/:agentName/key status = %d, want %d", recorder.Code, http.StatusNotImplemented)
+	}
+
+	body := decodeEnvelope(t, recorder)
+	if body.Code != 50100 {
+		t.Fatalf("GET /api/v1/agents/:agentName/key code = %d, want 50100", body.Code)
+	}
+	if body.Error == nil || body.Error.Type != "not_implemented" {
+		t.Fatalf("GET /api/v1/agents/:agentName/key error = %#v, want not_implemented", body.Error)
+	}
+	if body.Error.Details["reason"] != "sensitive_key_readback_disabled" {
+		t.Fatalf("GET /api/v1/agents/:agentName/key error.details.reason = %#v, want sensitive_key_readback_disabled", body.Error.Details["reason"])
+	}
+}
+
+func TestWebSocketEndpointRequiresWebSocketUpgrade(t *testing.T) {
+	t.Parallel()
+
+	recorder := performRequest(t, http.MethodGet, "/api/v1/agents/demo-agent/ws", "", "", nil)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("GET /api/v1/agents/:agentName/ws status = %d, want %d", recorder.Code, http.StatusBadRequest)
 	}
 }
 

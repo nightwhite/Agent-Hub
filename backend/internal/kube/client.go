@@ -15,6 +15,7 @@ import (
 )
 
 const DefaultAuthorizationHeader = "Authorization"
+const WebSocketAuthorizationQueryParam = "authorization"
 
 type Factory struct {
 	restConfig *rest.Config
@@ -30,7 +31,11 @@ func NewFactoryFromHeaders(header http.Header) (*Factory, *appErr.AppError) {
 		})
 	}
 
-	rawKC, err := url.QueryUnescape(encodedKC)
+	return NewFactoryFromEncodedKubeconfig(encodedKC)
+}
+
+func NewFactoryFromEncodedKubeconfig(encodedKC string) (*Factory, *appErr.AppError) {
+	rawKC, err := url.QueryUnescape(strings.TrimSpace(encodedKC))
 	if err != nil {
 		return nil, appErr.New(appErr.CodeInvalidAuthorizationHeader, "invalid url-encoded kubeconfig in Authorization header").WithDetails(map[string]any{
 			"header": DefaultAuthorizationHeader,
@@ -89,6 +94,10 @@ func namespaceFromKubeconfig(rawKC []byte) (string, error) {
 
 func (f *Factory) Namespace() string {
 	return f.namespace
+}
+
+func (f *Factory) RESTConfig() *rest.Config {
+	return rest.CopyConfig(f.restConfig)
 }
 
 func (f *Factory) Kubernetes() (*kubernetes.Clientset, error) {

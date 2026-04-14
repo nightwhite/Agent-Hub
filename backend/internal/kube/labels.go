@@ -1,5 +1,7 @@
 package kube
 
+import "fmt"
+
 func Labels(agentName string) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/name":     "hermes-agent",
@@ -20,4 +22,8 @@ func Annotations(aliasName, modelProvider, modelBaseURL, model string) map[strin
 		annotations["agent.sealos.io/alias-name"] = aliasName
 	}
 	return annotations
+}
+
+func ManagedSelector(agentName string) string {
+	return fmt.Sprintf("agent.sealos.io/name=%s", agentName)
 }

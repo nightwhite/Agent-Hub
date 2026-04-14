@@ -49,6 +49,50 @@ func TestBuildReturnsKubernetesObjects(t *testing.T) {
 	if got := envValue(objects.Devbox, "API_SERVER_KEY"); got != ag.APIServerKey {
 		t.Fatalf("Build() API_SERVER_KEY = %q, want %q", got, ag.APIServerKey)
 	}
+	if got := objects.Service.Spec.Selector["agent.sealos.io/name"]; got != ag.Name {
+		t.Fatalf("Build() service selector agent.sealos.io/name = %q, want %q", got, ag.Name)
+	}
+	configLabels, found, err := unstructured.NestedStringMap(objects.Devbox.Object, "spec", "config", "labels")
+	if err != nil || !found {
+		t.Fatalf("Build() config labels missing: found=%v err=%v", found, err)
+	}
+	if got := configLabels["agent.sealos.io/name"]; got != ag.Name {
+		t.Fatalf("Build() config label agent.sealos.io/name = %q, want %q", got, ag.Name)
+	}
+}
+
+func TestBuildDoesNotLeakIngressAnnotationsToOtherResources(t *testing.T) {
+	t.Parallel()
+
+	ag := agent.Agent{
+		Name:          "annotation-isolation",
+		Namespace:     "ns-test",
+		CPU:           "1000m",
+		Memory:        "2Gi",
+		Storage:       "10Gi",
+		ModelProvider: "openai",
+		ModelBaseURL:  "https://api.openai.com/v1",
+		Model:         "gpt-4o-mini",
+		APIServerKey:  "generated-api-key",
+	}
+
+	objects, err := Build(ag, "annotation-isolation.agent.usw-1.sealos.app", "nousresearch/hermes-agent:latest")
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+
+	if got := objects.Service.Annotations["nginx.ingress.kubernetes.io/proxy-body-size"]; got != "" {
+		t.Fatalf("Build() service unexpectedly leaked ingress annotation = %q", got)
+	}
+
+	devboxAnnotations := objects.Devbox.GetAnnotations()
+	if got := devboxAnnotations["nginx.ingress.kubernetes.io/proxy-body-size"]; got != "" {
+		t.Fatalf("Build() devbox unexpectedly leaked ingress annotation = %q", got)
+	}
+
+	if got := objects.Ingress.Annotations["nginx.ingress.kubernetes.io/proxy-body-size"]; got != "32m" {
+		t.Fatalf("Build() ingress proxy-body-size = %q, want 32m", got)
+	}
 }
 
 func TestEnvValueReturnsEmptyStringWhenValueMissing(t *testing.T) {

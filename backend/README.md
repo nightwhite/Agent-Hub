@@ -6,7 +6,7 @@
 - 根据请求里的 kubeconfig 连接 Kubernetes
 - 在指定 namespace 下创建 / 查询 / 更新 / 删除 agent 对应资源
 - 管理 agent API key
-- 提供一个 WebSocket 入口（当前仍是占位实现）
+- 提供一个 WebSocket 入口，支持终端、日志和文件操作
 
 当前一个逻辑 agent 会映射到三类 Kubernetes 资源：
 - Devbox
@@ -16,7 +16,7 @@
 ## Tech stack
 
 - gin：HTTP 路由与中间件
-- gorilla/websocket：WebSocket 连接
+- gorilla/websocket：WebSocket 会话
 - client-go：Kubernetes typed client
 - dynamic client：操作 Devbox CRD
 
@@ -66,14 +66,17 @@
 - `GET /readyz`
 
 它们只用于存活和就绪探针，不参与业务鉴权。
+- `healthz` 仅表示进程存活
+- `readyz` 当前只检查静态运行配置是否完整，不验证请求级 Kubernetes 可用性
 
 ## WebSocket contract
 
 WebSocket 使用独立消息协议，不复用 HTTP JSON envelope。
 
 - `GET /api/v1/agents/:agentName/ws`
-- 该接口同样要求 `Authorization`
-- 当前只实现 `system.ready` 与 `ping/pong`
+- 当前已支持终端、日志、文件操作
+- 推荐浏览器先连接，再发送 `auth` 首消息完成鉴权
+- 兼容 query：`?authorization=<url-encoded-kubeconfig>`
 
 ## Install dependencies
 
@@ -97,7 +100,9 @@ INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-agent:late
 
 前端联调入口文档见：
 
+- `api/frontend-checklist.md`
 - `api/frontend-integration.md`
+- `api/frontend-live-examples.md`
 
 默认配置来自环境变量：
 - `PORT`：默认 `8080`
@@ -123,8 +128,8 @@ curl http://127.0.0.1:8080/readyz
 - `DELETE /api/v1/agents/:agentName`
 - `POST /api/v1/agents/:agentName/run`
 - `POST /api/v1/agents/:agentName/pause`
-- `GET /api/v1/agents/:agentName/key`
-- `POST /api/v1/agents/:agentName/key/rotate`
+- `GET /api/v1/agents/:agentName/key`（当前返回 `501`）
+- `POST /api/v1/agents/:agentName/key/rotate`（不回显明文 key）
 - `GET /api/v1/agents/:agentName/ws`
 
 当前实现特点：
@@ -132,7 +137,7 @@ curl http://127.0.0.1:8080/readyz
 - namespace 严格来自 Authorization 中 kubeconfig 的 `current-context`
 - 删除按 `agent.sealos.io/name` 级联删除 devbox / service / ingress
 - `apiBaseURL` 由 ingress host 派生，固定格式为 `https://{host}/v1`
-- WebSocket 当前只实现连接、agent 存在性校验、`system.ready` 与 `ping/pong`
+- WebSocket 已支持终端、日志、文件操作
 
 ## API overview
 
@@ -186,6 +191,7 @@ http://127.0.0.1:8080
 - `error.type` 是稳定的机器可读错误类别
 - `error.details` 是可选字段
 - 当前 `details` 主要出现在鉴权错误和字段校验错误里
+- 非法 `X-Request-Id` 会被服务端忽略并重生
 
 ### 常见错误码
 
@@ -217,8 +223,7 @@ http://127.0.0.1:8080
   "hasModelAPIKey": false,
   "ingressDomain": "xxx-agent.usw-1.sealos.app",
   "apiBaseURL": "https://xxx-agent.usw-1.sealos.app/v1",
-  "createdAt": "2026-04-13T15:10:56Z",
-  "updatedAt": "2026-04-13T15:10:56Z"
+  "createdAt": "2026-04-13T15:10:56Z"
 }
 ```
 
@@ -226,13 +231,13 @@ http://127.0.0.1:8080
 - `agentName`：实例名，也是主键
 - `aliasName`：展示名，可为空
 - `namespace`：当前 kubeconfig 对应 namespace
-- `status`：实例状态，例如 `Running` / `Paused`
+- `status`：实例状态，例如 `Running`、`Paused`、`Creating`、`Failed`
 - `cpu` / `memory` / `storage`：资源配置
 - `modelProvider` / `modelBaseURL` / `model`：模型配置
 - `hasModelAPIKey`：是否配置了模型 API key
 - `ingressDomain`：实例 ingress 域名
 - `apiBaseURL`：由 ingress host 派生，格式固定为 `https://{host}/v1`
-- `createdAt` / `updatedAt`：时间戳字符串
+- `createdAt`：创建时间戳
 
 ## API details
 
@@ -273,7 +278,13 @@ http://127.0.0.1:8080
   "message": "ok",
   "requestId": "xxx",
   "data": {
-    "status": "ready"
+    "status": "ready",
+    "checks": {
+      "port": "ok",
+      "ingressSuffix": "ok",
+      "apiServerImage": "ok",
+      "kubernetes": "request_scoped"
+    }
   }
 }
 ```
@@ -308,8 +319,7 @@ http://127.0.0.1:8080
         "hasModelAPIKey": false,
         "ingressDomain": "abc-agent.usw-1.sealos.app",
         "apiBaseURL": "https://abc-agent.usw-1.sealos.app/v1",
-        "createdAt": "2026-04-13T15:10:56Z",
-        "updatedAt": "2026-04-13T15:10:56Z"
+        "createdAt": "2026-04-13T15:10:56Z"
       }
     ],
     "total": 1,
@@ -368,7 +378,11 @@ http://127.0.0.1:8080
 - `agent-cpu` / `agent-memory` / `agent-storage` 必须能被 K8s quantity 解析
 - `agent-model-baseurl` 必须是合法 URL，且 scheme 只能是 `http` 或 `https`
 
-成功响应：
+当前行为：
+- 该接口当前禁用
+- 返回 HTTP `501`
+
+响应示例：
 - HTTP `201`
 
 ```json
@@ -391,17 +405,15 @@ http://127.0.0.1:8080
       "hasModelAPIKey": false,
       "ingressDomain": "abc-agent.usw-1.sealos.app",
       "apiBaseURL": "https://abc-agent.usw-1.sealos.app/v1",
-      "createdAt": "2026-04-13T15:10:56Z",
-      "updatedAt": "2026-04-13T15:10:56Z"
-    },
-    "apiServerKey": "generated-key"
+      "createdAt": "2026-04-13T15:10:56Z"
+    }
   }
 }
 ```
 
 说明：
 - 创建时会同时创建 `Devbox`、`Service`、`Ingress`
-- 返回的 `apiServerKey` 是 agent API server 当前 key
+- 不会返回明文 `apiServerKey`
 
 ### 5. Get agent detail
 
@@ -432,8 +444,7 @@ http://127.0.0.1:8080
       "hasModelAPIKey": false,
       "ingressDomain": "abc-agent.usw-1.sealos.app",
       "apiBaseURL": "https://abc-agent.usw-1.sealos.app/v1",
-      "createdAt": "2026-04-13T15:10:56Z",
-      "updatedAt": "2026-04-13T15:10:56Z"
+      "createdAt": "2026-04-13T15:10:56Z"
     }
   }
 }
@@ -586,13 +597,17 @@ http://127.0.0.1:8080
 
 ```json
 {
-  "code": 0,
-  "message": "ok",
+  "code": 50100,
+  "message": "agent key readback is disabled",
   "requestId": "xxx",
-  "data": {
-    "agentName": "demo-agent",
-    "apiServerKey": "current-key"
-  }
+  "error": {
+    "type": "not_implemented",
+    "details": {
+      "endpoint": "agent_key_read",
+      "reason": "sensitive_key_readback_disabled"
+    }
+  },
+  "data": null
 }
 ```
 
@@ -616,7 +631,7 @@ http://127.0.0.1:8080
   "requestId": "xxx",
   "data": {
     "agentName": "demo-agent",
-    "apiServerKey": "new-key"
+    "rotated": true
   }
 }
 ```
@@ -625,75 +640,18 @@ http://127.0.0.1:8080
 
 ### `GET /api/v1/agents/:agentName/ws`
 
-请求头：
-- `Authorization: <url-encoded kubeconfig>`
+当前已支持：
+- terminal
+- logs
+- file operations
 
-当前状态：
-- 这是一个占位实现
-- 不是完整终端 / 日志 / 文件管理协议
+鉴权方式：
+- 推荐先连接，再发送 `auth` 消息
+- 非浏览器客户端可继续使用 `Authorization` 头
+- 兼容 query：`?authorization=<url-encoded-kubeconfig>`
 
-当前已实现：
-- 连接建立
-- agent 存在性校验
-- 首条 `system.ready` 消息
-- `ping` / `pong`
-- 其他消息返回未实现错误
-
-消息结构：
-
-```json
-{
-  "type": "string",
-  "requestId": "string",
-  "data": {}
-}
-```
-
-连接建立后的服务端消息示例：
-
-```json
-{
-  "type": "system.ready",
-  "requestId": "xxx",
-  "data": {
-    "agentName": "demo-agent",
-    "namespace": "ns-38cq5qwz",
-    "message": "websocket connected; terminal/log/file protocol pending implementation"
-  }
-}
-```
-
-ping / pong 示例：
-
-客户端：
-
-```json
-{
-  "type": "ping",
-  "requestId": "req_1"
-}
-```
-
-服务端：
-
-```json
-{
-  "type": "pong",
-  "requestId": "req_1"
-}
-```
-
-未实现消息返回：
-
-```json
-{
-  "type": "error",
-  "requestId": "req_2",
-  "data": {
-    "message": "websocket message handling not implemented yet"
-  }
-}
-```
+详细协议见：
+- `api/websocket.md`
 
 ## curl examples
 
@@ -768,6 +726,10 @@ curl -s \
   http://127.0.0.1:8080/api/v1/agents/demo-agent/key
 ```
 
+说明：
+- 当前固定返回 `501`
+- 前端不可读取真实 key
+
 ### 7. Rotate key
 
 ```bash
@@ -802,9 +764,9 @@ curl -s -X DELETE \
 
 ## Known notes
 
-1. WebSocket 仍然只是占位实现
-- 当前只能连通、ready 消息、ping/pong
-- 终端 / 日志 / 文件管理协议还未落地
+1. WebSocket 已支持基础交互能力
+- 已支持终端、日志、文件操作
+- 浏览器端请用 `?authorization=<url-encoded-kubeconfig>`
 
 2. CPU 在 create 响应里可能显示 `1000m`，在 list/detail 里可能显示 `1`
 - 这是 Kubernetes quantity 标准化现象
@@ -816,3 +778,7 @@ curl -s -X DELETE \
 4. 删除基于同名资源模型
 - Devbox / Service / Ingress 都要求与 `agentName` 同名
 - 删除和详情读取使用相同的资源关联方式
+
+5. `readyz` 当前只表示静态配置 ready
+- 不验证请求级 kubeconfig 的可用性
+- 不等价于“目标 Kubernetes 集群可操作”
