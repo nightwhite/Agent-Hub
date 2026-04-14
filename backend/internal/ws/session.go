@@ -76,7 +76,6 @@ type session struct {
 	authorization string
 	factory       *kube.Factory
 	clientset     *kubernetes.Clientset
-	pod           kube.PodRef
 
 	terminals map[string]*terminalSession
 	logs      map[string]*logSession
@@ -117,7 +116,13 @@ func (s *session) run() {
 			close(pingDone)
 			return
 		}
-		s.sendSystemReady(s.requestID)
+		podRef, podErr := s.currentPod()
+		if podErr != nil {
+			s.sendAppError(s.requestID, podErr)
+			close(pingDone)
+			return
+		}
+		s.sendSystemReady(s.requestID, podRef)
 	} else {
 		_ = s.conn.SetReadDeadline(time.Now().Add(wsAuthTimeout))
 		s.send(dto.WSMessage{
@@ -248,7 +253,12 @@ func (s *session) handleAuth(message dto.WSMessage) {
 	}
 
 	_ = s.conn.SetReadDeadline(time.Now().Add(wsPongWait))
-	s.sendSystemReady(message.RequestID)
+	podRef, podErr := s.currentPod()
+	if podErr != nil {
+		s.sendAppError(message.RequestID, podErr)
+		return
+	}
+	s.sendSystemReady(message.RequestID, podRef)
 }
 
 func (s *session) authenticate(encodedAuthorization string) *appErr.AppError {
@@ -262,16 +272,10 @@ func (s *session) authenticate(encodedAuthorization string) *appErr.AppError {
 		return appErr.New(appErr.CodeKubernetesOperation, "failed to build kubernetes clientset")
 	}
 
-	podRef, resolveErr := kube.ResolveAgentPod(s.ctx, clientset, factory.Namespace(), s.agentName)
-	if resolveErr != nil {
-		return appErr.New(appErr.CodeNotFound, resolveErr.Error())
-	}
-
 	s.stateMu.Lock()
 	s.authorization = encodedAuthorization
 	s.factory = factory
 	s.clientset = clientset
-	s.pod = podRef
 	s.stateMu.Unlock()
 
 	return nil
@@ -283,18 +287,32 @@ func (s *session) isAuthenticated() bool {
 	return s.factory != nil && s.clientset != nil
 }
 
-func (s *session) sendSystemReady(requestID string) {
+func (s *session) currentPod() (kube.PodRef, *appErr.AppError) {
 	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
+	clientset := s.clientset
+	factory := s.factory
+	s.stateMu.RUnlock()
+
+	podRef, err := kube.ResolveAgentPod(s.ctx, clientset, factory.Namespace(), s.agentName)
+	if err != nil {
+		return kube.PodRef{}, appErr.New(appErr.CodeNotFound, err.Error())
+	}
+	return podRef, nil
+}
+
+func (s *session) sendSystemReady(requestID string, podRef kube.PodRef) {
+	s.stateMu.RLock()
+	namespace := s.factory.Namespace()
+	s.stateMu.RUnlock()
 
 	s.send(dto.WSMessage{
 		Type:      "system.ready",
 		RequestID: requestID,
 		Data: map[string]any{
 			"agentName": s.agentName,
-			"namespace": s.factory.Namespace(),
-			"podName":   s.pod.Name,
-			"container": s.pod.Container,
+			"namespace": namespace,
+			"podName":   podRef.Name,
+			"container": podRef.Container,
 			"message":   "websocket connected",
 		},
 	})
@@ -410,11 +428,18 @@ func (s *session) fileList(message dto.WSMessage) {
 		return
 	}
 
-	items := parseListOutput(output)
+	items := filterListItems(
+		parseListOutput(output),
+		getBool(message.Data, "includeHidden"),
+		getString(message.Data, "filter"),
+		int(getNumber(message.Data, "limit")),
+		int(getNumber(message.Data, "offset")),
+	)
 	s.send(dto.WSMessage{Type: "file.result", RequestID: message.RequestID, Data: map[string]any{
-		"op":    "list",
-		"path":  resolved,
-		"items": items,
+		"op":     "list",
+		"path":   resolved,
+		"items":  items,
+		"filter": getString(message.Data, "filter"),
 	}})
 }
 
@@ -594,10 +619,14 @@ func (s *session) fileUploadEnd(message dto.WSMessage) {
 }
 
 func (s *session) execCapture(command []string, stdin string) (string, error) {
+	pod, podErr := s.currentPod()
+	if podErr != nil {
+		return "", fmt.Errorf("%s", podErr.Error())
+	}
+
 	s.stateMu.RLock()
 	clientset := s.clientset
 	factory := s.factory
-	pod := s.pod
 	s.stateMu.RUnlock()
 
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
@@ -731,10 +760,17 @@ func (t *terminalSession) run(cwd string) {
 		id:        t.id,
 	}
 
+	pod, podErr := t.session.currentPod()
+	if podErr != nil {
+		t.session.sendAppError(t.requestID, podErr)
+		t.emitClosed(t.requestID)
+		t.session.removeTerminal(t.id)
+		return
+	}
+
 	t.session.stateMu.RLock()
 	clientset := t.session.clientset
 	factory := t.session.factory
-	pod := t.session.pod
 	t.session.stateMu.RUnlock()
 
 	command := []string{"sh", "-lc", "cd -- " + shellQuote(cwd) + " && exec sh"}
@@ -797,10 +833,17 @@ func newLogSession(s *session, id, requestID string) *logSession {
 }
 
 func (l *logSession) run(opts corev1.PodLogOptions) {
+	pod, podErr := l.session.currentPod()
+	if podErr != nil {
+		l.session.sendAppError(l.requestID, podErr)
+		l.emitClosed(l.requestID)
+		l.session.removeLog(l.id)
+		return
+	}
+
 	l.session.stateMu.RLock()
 	clientset := l.session.clientset
 	factory := l.session.factory
-	pod := l.session.pod
 	l.session.stateMu.RUnlock()
 
 	stream, err := kube.StreamPodLogs(l.ctx, clientset, factory.Namespace(), pod.Name, pod.Container, &opts)
@@ -957,6 +1000,20 @@ func getNumber(data map[string]any, key string) float64 {
 	}
 }
 
+func getBool(data map[string]any, key string) bool {
+	if data == nil {
+		return false
+	}
+	switch value := data[key].(type) {
+	case bool:
+		return value
+	case string:
+		return strings.EqualFold(strings.TrimSpace(value), "true")
+	default:
+		return false
+	}
+}
+
 func optionalInt64(v float64) *int64 {
 	if v <= 0 {
 		return nil
@@ -1023,6 +1080,41 @@ func parseListOutput(raw string) []map[string]any {
 		})
 	}
 	return items
+}
+
+func filterListItems(items []map[string]any, includeHidden bool, filter string, limit, offset int) []map[string]any {
+	filter = strings.ToLower(strings.TrimSpace(filter))
+	filtered := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		name := strings.TrimSpace(fmt.Sprint(item["name"]))
+		if name == "" {
+			continue
+		}
+		if !includeHidden && strings.HasPrefix(name, ".") {
+			continue
+		}
+		if filter != "" && !strings.Contains(strings.ToLower(name), filter) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(filtered) {
+		return []map[string]any{}
+	}
+	filtered = filtered[offset:]
+
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit < len(filtered) {
+		filtered = filtered[:limit]
+	}
+
+	return filtered
 }
 
 func validateMessage(message dto.WSMessage) error {

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/nightwhite/Agent-Hub/internal/agent"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -92,6 +94,32 @@ func TestBuildDoesNotLeakIngressAnnotationsToOtherResources(t *testing.T) {
 
 	if got := objects.Ingress.Annotations["nginx.ingress.kubernetes.io/proxy-body-size"]; got != "32m" {
 		t.Fatalf("Build() ingress proxy-body-size = %q, want 32m", got)
+	}
+}
+
+func TestSetOwnerReferenceAssignsControllerOwner(t *testing.T) {
+	t.Parallel()
+
+	owner := &unstructured.Unstructured{}
+	owner.SetAPIVersion("devbox.sealos.io/v1alpha2")
+	owner.SetKind("Devbox")
+	owner.SetName("demo-agent")
+	owner.SetUID("uid-123")
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "demo-agent",
+			Namespace: "ns-test",
+		},
+	}
+
+	SetOwnerReference(service, owner)
+	if len(service.OwnerReferences) != 1 {
+		t.Fatalf("SetOwnerReference() owner ref count = %d, want 1", len(service.OwnerReferences))
+	}
+	ref := service.OwnerReferences[0]
+	if ref.Name != "demo-agent" || ref.Kind != "Devbox" || string(ref.UID) != "uid-123" {
+		t.Fatalf("SetOwnerReference() owner ref = %#v", ref)
 	}
 }
 

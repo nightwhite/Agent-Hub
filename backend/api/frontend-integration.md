@@ -357,6 +357,20 @@ curl -s -X DELETE \
 - `file.list/read/download/write/delete/mkdir`
 - `file.upload.begin/chunk/end`
 
+`file.list` 当前支持：
+
+- `path`
+- `includeHidden`
+- `filter`
+- `limit`
+- `offset`
+
+默认行为：
+
+- 默认不返回隐藏文件和隐藏目录
+- 可以通过 `filter` 做名称过滤
+- 可以通过 `limit` / `offset` 做前端分页
+
 详细协议见：
 
 - [websocket.md](/Users/sealos/Agent-Hub/backend/api/websocket.md)
@@ -366,8 +380,6 @@ curl -s -X DELETE \
 前端当前阶段先不要依赖：
 
 - 明文 key 读取
-- 结构化文件列表返回
-- 二进制文件上传/下载分片协议
-- 多终端 / 多日志订阅并发
+- 真正的流式大文件传输保护
 
 这些接口后续会补，但当前联调重点是基础 REST 管理面。

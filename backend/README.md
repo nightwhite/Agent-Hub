@@ -24,7 +24,6 @@
 
 - `api`: API 描述文件（OpenAPI / WebSocket 协议草案）
 - `cmd/app`: 程序入口
-- `configs`: 配置目录（预留）
 - `internal/config`: 环境配置
 - `internal/router`: gin 路由注册
 - `internal/handler`: HTTP / WebSocket 处理器
@@ -32,10 +31,9 @@
 - `internal/dto`: 请求与消息 DTO
 - `internal/agent`: agent 领域模型、状态、校验
 - `internal/kube`: client-go 客户端、Devbox 仓储、K8s 资源构造
+- `internal/ws`: WebSocket 会话、协议与 pod 交互逻辑
 - `internal/random`: 随机串工具
 - `pkg`: 通用 response / error 封装
-- `scripts`: 脚本目录（预留）
-- `test`: 额外测试目录（预留）
 
 整体保持 `cmd + internal + pkg` 的标准 Go 项目风格，避免过深目录。
 

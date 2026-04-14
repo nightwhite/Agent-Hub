@@ -152,7 +152,11 @@ Examples:
   "type": "file.list",
   "requestId": "file-list",
   "data": {
-    "path": "."
+    "path": ".",
+    "includeHidden": false,
+    "filter": "",
+    "limit": 100,
+    "offset": 0
   }
 }
 ```
@@ -213,3 +217,7 @@ Notes:
   - `name`
   - `type`
   - `size`
+- `file.list` defaults:
+  - hides dotfiles/directories unless `includeHidden=true`
+  - supports `filter`
+  - supports `limit` and `offset`

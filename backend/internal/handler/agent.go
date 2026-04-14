@@ -38,6 +38,7 @@ func ListAgents(c *gin.Context) {
 	if !ok {
 		return
 	}
+	ingressDomains := listIngressDomains(ctx, clientset, factory.Namespace())
 
 	devboxes, kErr := repo.List(ctx, "app.kubernetes.io/name=hermes-agent")
 	if kErr != nil {
@@ -56,7 +57,9 @@ func ListAgents(c *gin.Context) {
 			writeAppError(c, http.StatusInternalServerError, appErr.New(appErr.CodeKubernetesOperation, convErr.Error()))
 			return
 		}
-		enrichIngressDomain(ctx, clientset, &view)
+		if domain, exists := ingressDomains[view.Agent.Name]; exists {
+			view.Agent.IngressDomain = domain
+		}
 		views = append(views, view)
 	}
 	sort.Slice(views, func(i, j int) bool { return views[i].CreatedAt > views[j].CreatedAt })
@@ -143,6 +146,9 @@ func CreateAgent(c *gin.Context) {
 		writeKubernetesError(c, kErr, "failed to create devbox")
 		return
 	}
+
+	kube.SetOwnerReference(objects.Service, createdDevbox)
+	kube.SetOwnerReference(objects.Ingress, createdDevbox)
 	if _, err := clientset.CoreV1().Services(factory.Namespace()).Create(ctx, objects.Service, metav1.CreateOptions{}); err != nil {
 		_ = repo.Delete(ctx, createdDevbox.GetName())
 		writeKubernetesError(c, err, "failed to create service")
@@ -256,7 +262,9 @@ func retryUpdateDevbox(ctx context.Context, repo *kube.Repository, agentName str
 			return apierrors.NewNotFound(kube.ResourceGVR().GroupResource(), agentName)
 		}
 
-		applyUpdateToDevbox(devbox, req)
+		if err := applyUpdateToDevbox(devbox, req); err != nil {
+			return err
+		}
 		next, updateErr := repo.Update(ctx, devbox)
 		if updateErr != nil {
 			return updateErr
@@ -428,7 +436,11 @@ func getAgentView(ctx context.Context, namespace, agentName string, repo *kube.R
 func getResources(ctx context.Context, namespace, agentName string, repo *kube.Repository, clientset *kubernetes.Clientset, c *gin.Context) (*unstructured.Unstructured, *corev1.Service, *networkingv1.Ingress, bool) {
 	devbox, err := repo.Get(ctx, agentName)
 	if err != nil {
-		writeKubernetesError(c, err, "agent not found")
+		if apierrors.IsNotFound(err) {
+			writeAppError(c, http.StatusNotFound, appErr.New(appErr.CodeNotFound, "agent not found"))
+			return nil, nil, nil, false
+		}
+		writeKubernetesError(c, err, "failed to get agent")
 		return nil, nil, nil, false
 	}
 	if !kube.HasManagedLabel(devbox.GetLabels(), agentName) {
@@ -457,6 +469,29 @@ func enrichIngressDomain(ctx context.Context, clientset *kubernetes.Clientset, v
 	}
 
 	log.Printf("failed to load ingress for agent %s/%s: %v", view.Agent.Namespace, view.Agent.Name, err)
+}
+
+func listIngressDomains(ctx context.Context, clientset *kubernetes.Clientset, namespace string) map[string]string {
+	domains := map[string]string{}
+
+	ingresses, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "agent.sealos.io/managed-by=agent-hub-backend",
+	})
+	if err != nil {
+		log.Printf("failed to prefetch ingresses for namespace %s: %v", namespace, err)
+		return domains
+	}
+
+	for i := range ingresses.Items {
+		ingress := ingresses.Items[i]
+		agentName := strings.TrimSpace(ingress.Labels["agent.sealos.io/name"])
+		if agentName == "" {
+			continue
+		}
+		domains[agentName] = kube.IngressDomain(&ingress)
+	}
+
+	return domains
 }
 
 func toAgentItem(view kube.AgentView) dto.AgentItem {
@@ -584,34 +619,57 @@ func validationFieldError(field, reason, value string) *appErr.AppError {
 	})
 }
 
-func applyUpdateToDevbox(devbox *unstructured.Unstructured, req dto.UpdateAgentRequest) {
+func applyUpdateToDevbox(devbox *unstructured.Unstructured, req dto.UpdateAgentRequest) error {
 	if req.AgentCPU != nil {
-		_ = unstructured.SetNestedField(devbox.Object, strings.TrimSpace(*req.AgentCPU), "spec", "resource", "cpu")
+		if err := unstructured.SetNestedField(devbox.Object, strings.TrimSpace(*req.AgentCPU), "spec", "resource", "cpu"); err != nil {
+			return err
+		}
 	}
 	if req.AgentMemory != nil {
-		_ = unstructured.SetNestedField(devbox.Object, strings.TrimSpace(*req.AgentMemory), "spec", "resource", "memory")
+		if err := unstructured.SetNestedField(devbox.Object, strings.TrimSpace(*req.AgentMemory), "spec", "resource", "memory"); err != nil {
+			return err
+		}
 	}
 	if req.AgentStorage != nil {
-		_ = unstructured.SetNestedField(devbox.Object, strings.TrimSpace(*req.AgentStorage), "spec", "storageLimit")
+		if err := unstructured.SetNestedField(devbox.Object, strings.TrimSpace(*req.AgentStorage), "spec", "storageLimit"); err != nil {
+			return err
+		}
 	}
 	if req.AgentAliasName != nil {
-		_ = kube.SetAnnotation(devbox, "agent.sealos.io/alias-name", strings.TrimSpace(*req.AgentAliasName))
+		if err := kube.SetAnnotation(devbox, "agent.sealos.io/alias-name", strings.TrimSpace(*req.AgentAliasName)); err != nil {
+			return err
+		}
 	}
 	if req.ModelProvider != nil {
-		_ = kube.SetAnnotation(devbox, "agent.sealos.io/model-provider", strings.TrimSpace(*req.ModelProvider))
-		_ = kube.SetEnvValue(devbox, "AGENT_MODEL_PROVIDER", strings.TrimSpace(*req.ModelProvider))
+		if err := kube.SetAnnotation(devbox, "agent.sealos.io/model-provider", strings.TrimSpace(*req.ModelProvider)); err != nil {
+			return err
+		}
+		if err := kube.SetEnvValue(devbox, "AGENT_MODEL_PROVIDER", strings.TrimSpace(*req.ModelProvider)); err != nil {
+			return err
+		}
 	}
 	if req.ModelBaseURL != nil {
-		_ = kube.SetAnnotation(devbox, "agent.sealos.io/model-baseurl", strings.TrimSpace(*req.ModelBaseURL))
-		_ = kube.SetEnvValue(devbox, "AGENT_MODEL_BASEURL", strings.TrimSpace(*req.ModelBaseURL))
+		if err := kube.SetAnnotation(devbox, "agent.sealos.io/model-baseurl", strings.TrimSpace(*req.ModelBaseURL)); err != nil {
+			return err
+		}
+		if err := kube.SetEnvValue(devbox, "AGENT_MODEL_BASEURL", strings.TrimSpace(*req.ModelBaseURL)); err != nil {
+			return err
+		}
 	}
 	if req.Model != nil {
-		_ = kube.SetAnnotation(devbox, "agent.sealos.io/model", strings.TrimSpace(*req.Model))
-		_ = kube.SetEnvValue(devbox, "AGENT_MODEL", strings.TrimSpace(*req.Model))
+		if err := kube.SetAnnotation(devbox, "agent.sealos.io/model", strings.TrimSpace(*req.Model)); err != nil {
+			return err
+		}
+		if err := kube.SetEnvValue(devbox, "AGENT_MODEL", strings.TrimSpace(*req.Model)); err != nil {
+			return err
+		}
 	}
 	if req.ModelAPIKey != nil {
-		_ = kube.SetEnvValue(devbox, "AGENT_MODEL_APIKEY", *req.ModelAPIKey)
+		if err := kube.SetEnvValue(devbox, "AGENT_MODEL_APIKEY", *req.ModelAPIKey); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func applyUpdateToService(service *corev1.Service, req dto.UpdateAgentRequest) {

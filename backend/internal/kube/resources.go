@@ -6,6 +6,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	intstrutil "k8s.io/apimachinery/pkg/util/intstr"
 )
 
@@ -145,6 +146,22 @@ func Build(agentSpec agent.Agent, ingressDomain, image string) (ResourceObjects,
 
 func stringPtr(v string) *string {
 	return &v
+}
+
+func SetOwnerReference(obj metav1.Object, owner *unstructured.Unstructured) {
+	if obj == nil || owner == nil {
+		return
+	}
+
+	trueValue := true
+	obj.SetOwnerReferences([]metav1.OwnerReference{{
+		APIVersion:         owner.GetAPIVersion(),
+		Kind:               owner.GetKind(),
+		Name:               owner.GetName(),
+		UID:                types.UID(owner.GetUID()),
+		Controller:         &trueValue,
+		BlockOwnerDeletion: &trueValue,
+	}})
 }
 
 func cloneStringMap(input map[string]string) map[string]string {
