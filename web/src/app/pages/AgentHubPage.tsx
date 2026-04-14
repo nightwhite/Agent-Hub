@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   createAgent,
+  deriveAIProxyModelBaseURL,
   createClusterContext,
   deleteAgent,
   ensureAIProxyToken,
@@ -45,21 +46,6 @@ import { useAgentChat } from './agent-hub/hooks/useAgentChat'
 import { useAgentTerminal } from './agent-hub/hooks/useAgentTerminal'
 
 const WORKSPACE_AIPROXY_TOKEN_NAME = 'Agent-Hub'
-
-const deriveAIProxyBaseURL = (server = '') => {
-  if (!server) return ''
-
-  try {
-    const target = new URL(server)
-    const host = target.hostname || ''
-    if (!host.includes('sealos.')) {
-      return ''
-    }
-    return `https://aiproxy-web.${host}`
-  } catch {
-    return ''
-  }
-}
 
 export function AgentHubPage() {
   const [items, setItems] = useState<AgentListItem[]>([])
@@ -121,8 +107,8 @@ export function AgentHubPage() {
     )
   }, [items, keyword])
 
-  const workspaceAIProxyBaseURL = useMemo(
-    () => deriveAIProxyBaseURL(clusterContext?.server || clusterInfo?.server || ''),
+  const workspaceAIProxyModelBaseURL = useMemo(
+    () => deriveAIProxyModelBaseURL(clusterContext?.server || clusterInfo?.server || ''),
     [clusterContext?.server, clusterInfo?.server],
   )
 
@@ -240,7 +226,7 @@ export function AgentHubPage() {
       const seed = getCreateBlueprint(clusterContext, undefined, [])
       const safeAppName = ensureDns1035Name(seed.appName, 'agent')
       const ensuredWorkspaceToken = await ensureWorkspaceTokenReady(clusterContext)
-      const resolvedWorkspaceModelBaseURL = workspaceAIProxyBaseURL || 'https://api.openai.com/v1'
+      const resolvedWorkspaceModelBaseURL = workspaceAIProxyModelBaseURL
 
       setBlueprint({
         ...applyTemplateToBlueprint(
@@ -263,7 +249,7 @@ export function AgentHubPage() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '加载创建模板失败')
     }
-  }, [clusterContext, ensureWorkspaceTokenReady, selectedTemplateId, workspaceAIProxyBaseURL])
+  }, [clusterContext, ensureWorkspaceTokenReady, selectedTemplateId, workspaceAIProxyModelBaseURL])
 
   const openEditFlow = useCallback((item: AgentListItem) => {
     setConfigMode('edit')
@@ -350,7 +336,7 @@ export function AgentHubPage() {
         appName: ensureDns1035Name(blueprint.appName, 'agent'),
         aliasName,
         modelProvider: 'openai',
-        modelBaseURL: workspaceAIProxyBaseURL || blueprint.modelBaseURL,
+        modelBaseURL: workspaceAIProxyModelBaseURL || blueprint.modelBaseURL,
       }
 
       if (configMode === 'create') {
@@ -390,7 +376,7 @@ export function AgentHubPage() {
     getAgentLabel,
     loadAll,
     ensureWorkspaceTokenReady,
-    workspaceAIProxyBaseURL,
+    workspaceAIProxyModelBaseURL,
   ])
 
   const handleDelete = useCallback(async () => {
@@ -497,7 +483,7 @@ export function AgentHubPage() {
         open={showConfigModal}
         submitting={submitting}
         templateId={selectedTemplateId}
-        workspaceModelBaseURL={workspaceAIProxyBaseURL}
+        workspaceModelBaseURL={workspaceAIProxyModelBaseURL}
         workspaceModelKey={workspaceAIProxyToken?.key || ''}
         workspaceModelKeyReady={Boolean(workspaceAIProxyToken?.key)}
       />

@@ -1,8 +1,5 @@
 // @ts-nocheck
 
-export const AIPROXY_BASE_URL =
-  import.meta.env.VITE_AGENTHUB_AIPROXY_BASE_URL || 'https://aiproxy-web.hzh.sealos.run'
-
 const normalizeApiUrl = (value = '') => {
   if (!value) return ''
 

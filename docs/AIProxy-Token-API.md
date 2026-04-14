@@ -21,24 +21,29 @@ Base URL:
 https://aiproxy-web.usw-1.sealos.io
 ```
 
-当前项目建议把 AIProxy 服务地址收口成环境变量。
+当前项目建议把 AIProxy 的管理地址和模型地址分开理解。
 
 推荐约定：
 
-- 后端：`AIPROXY_BASE_URL`
-- 前端：`VITE_AGENTHUB_AIPROXY_BASE_URL`
+- 后端 token 管理地址：`AIPROXY_BASE_URL`
+- 前端 token 管理地址兜底：`VITE_AGENTHUB_AIPROXY_MANAGER_BASE_URL`
+- 前端模型地址兜底：`VITE_AGENTHUB_AIPROXY_MODEL_BASE_URL`
 
 默认值：
 
 ```text
-https://aiproxy-web.hzh.sealos.run
+AIPROXY_BASE_URL=https://aiproxy-web.hzh.sealos.run
+VITE_AGENTHUB_AIPROXY_MANAGER_BASE_URL=https://aiproxy-web.hzh.sealos.run
+VITE_AGENTHUB_AIPROXY_MODEL_BASE_URL=https://aiproxy.hzh.sealos.run
 ```
 
 说明：
 
 - 文档里的 `https://aiproxy-web.usw-1.sealos.io` 是当前你提供的接口地址示例
-- 项目配置层默认走 `https://aiproxy-web.hzh.sealos.run`
-- 如果部署到其他 region，再通过环境变量覆盖
+- 项目配置层默认走 `https://aiproxy-web.hzh.sealos.run` 访问 token 管理接口
+- Hermes 运行时真正写入 `agent-model-baseurl` 的模型地址应使用 `https://aiproxy.<region-host>`
+- 例如 `https://usw-1.sealos.io:6443` 对应 `https://aiproxy.usw-1.sealos.io`
+- 如果部署到其他 region，再通过环境变量覆盖兜底值
 
 ---
 
@@ -208,7 +213,7 @@ POST /api/v1/aiproxy/token/ensure
 
 - 前端在用户首次打开 Agent Hub 页面时调用一次该接口
 - 前端仍然把 url encoded kubeconfig 放在 `Authorization` 头里发给后端
-- 后端使用 `AIPROXY_BASE_URL` 作为上游地址，先查询再按需创建
+- 后端使用 `AIPROXY_BASE_URL` 访问 token 管理接口，先查询再按需创建
 - 默认 token 名称规则为 `agenthub-<namespace>`
 - 名称会被标准化为小写、保留 `a-z` / `0-9` / `-`，并截断到 32 个字符以内
 - 如果 token 已存在，直接复用；如果不存在，再调用创建接口

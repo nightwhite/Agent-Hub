@@ -1,3 +1,4 @@
+export * from './api/aiproxy'
 export * from './api/chat'
 export * from './api/cluster'
 export * from './api/backend'
