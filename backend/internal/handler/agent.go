@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -227,18 +228,9 @@ func UpdateAgent(c *gin.Context) {
 	if !ok {
 		return
 	}
-	updatedDevbox, kErr := retryUpdateDevbox(ctx, repo, agentName, req)
-	if kErr != nil {
-		writeKubernetesError(c, kErr, "failed to update devbox")
-		return
-	}
-	if err := retryUpdateService(ctx, clientset, factory.Namespace(), agentName, req); err != nil {
-		writeKubernetesError(c, err, "failed to update service")
-		return
-	}
-	updatedIngress, ingressErr := retryUpdateIngress(ctx, clientset, factory.Namespace(), agentName, req)
-	if ingressErr != nil {
-		writeKubernetesError(c, ingressErr, "failed to update ingress")
+	updatedDevbox, updatedIngress, updateErr := updateAgentResources(ctx, repo, clientset, factory.Namespace(), agentName, req)
+	if updateErr != nil {
+		writeKubernetesError(c, updateErr, "failed to update agent resources")
 		return
 	}
 
@@ -275,7 +267,7 @@ func retryUpdateDevbox(ctx context.Context, repo *kube.Repository, agentName str
 	return updated, err
 }
 
-func retryUpdateService(ctx context.Context, clientset *kubernetes.Clientset, namespace, agentName string, req dto.UpdateAgentRequest) error {
+func retryUpdateService(ctx context.Context, clientset kubernetes.Interface, namespace, agentName string, req dto.UpdateAgentRequest) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		service, err := clientset.CoreV1().Services(namespace).Get(ctx, agentName, metav1.GetOptions{})
 		if err != nil {
@@ -287,7 +279,7 @@ func retryUpdateService(ctx context.Context, clientset *kubernetes.Clientset, na
 	})
 }
 
-func retryUpdateIngress(ctx context.Context, clientset *kubernetes.Clientset, namespace, agentName string, req dto.UpdateAgentRequest) (*networkingv1.Ingress, error) {
+func retryUpdateIngress(ctx context.Context, clientset kubernetes.Interface, namespace, agentName string, req dto.UpdateAgentRequest) (*networkingv1.Ingress, error) {
 	var updated *networkingv1.Ingress
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		ingress, err := clientset.NetworkingV1().Ingresses(namespace).Get(ctx, agentName, metav1.GetOptions{})
@@ -303,6 +295,93 @@ func retryUpdateIngress(ctx context.Context, clientset *kubernetes.Clientset, na
 		return nil
 	})
 	return updated, err
+}
+
+func updateAgentResources(
+	ctx context.Context,
+	repo *kube.Repository,
+	clientset kubernetes.Interface,
+	namespace string,
+	agentName string,
+	req dto.UpdateAgentRequest,
+) (*unstructured.Unstructured, *networkingv1.Ingress, error) {
+	devbox, service, _, err := getManagedResources(ctx, namespace, agentName, repo, clientset)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	devboxSnapshot := devbox.DeepCopy()
+	serviceSnapshot := service.DeepCopy()
+
+	updatedDevbox, err := retryUpdateDevbox(ctx, repo, agentName, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := retryUpdateService(ctx, clientset, namespace, agentName, req); err != nil {
+		return nil, nil, combineRollbackError(err, restoreDevbox(ctx, repo, devboxSnapshot))
+	}
+
+	updatedIngress, err := retryUpdateIngress(ctx, clientset, namespace, agentName, req)
+	if err != nil {
+		return nil, nil, combineRollbackError(
+			err,
+			restoreService(ctx, clientset, namespace, serviceSnapshot),
+			restoreDevbox(ctx, repo, devboxSnapshot),
+		)
+	}
+
+	return updatedDevbox, updatedIngress, nil
+}
+
+func restoreDevbox(ctx context.Context, repo *kube.Repository, snapshot *unstructured.Unstructured) error {
+	if snapshot == nil {
+		return nil
+	}
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current, err := repo.Get(ctx, snapshot.GetName())
+		if err != nil {
+			return err
+		}
+
+		restore := snapshot.DeepCopy()
+		restore.SetResourceVersion(current.GetResourceVersion())
+		_, err = repo.Update(ctx, restore)
+		return err
+	})
+}
+
+func restoreService(ctx context.Context, clientset kubernetes.Interface, namespace string, snapshot *corev1.Service) error {
+	if snapshot == nil {
+		return nil
+	}
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current, err := clientset.CoreV1().Services(namespace).Get(ctx, snapshot.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
+		restore := snapshot.DeepCopy()
+		restore.ResourceVersion = current.ResourceVersion
+		_, err = clientset.CoreV1().Services(namespace).Update(ctx, restore, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+func combineRollbackError(primary error, rollbackErrors ...error) error {
+	failures := make([]string, 0, len(rollbackErrors))
+	for _, err := range rollbackErrors {
+		if err == nil {
+			continue
+		}
+		failures = append(failures, err.Error())
+	}
+	if len(failures) == 0 {
+		return primary
+	}
+
+	return fmt.Errorf("%w; rollback failed: %s", primary, strings.Join(failures, "; "))
 }
 
 func DeleteAgent(c *gin.Context) {
@@ -505,7 +584,7 @@ func AgentWebSocket(c *gin.Context) {
 	agentws.Handler{Config: runtimeConfig(c)}.Serve(c, requestID(c))
 }
 
-func newClients(c *gin.Context, factory *kube.Factory) (*kube.Repository, *kubernetes.Clientset, bool) {
+func newClients(c *gin.Context, factory *kube.Factory) (*kube.Repository, kubernetes.Interface, bool) {
 	dynamicClient, err := factory.Dynamic()
 	if err != nil {
 		writeAppError(c, http.StatusInternalServerError, appErr.New(appErr.CodeKubernetesOperation, "failed to build kubernetes dynamic client"))
@@ -519,7 +598,7 @@ func newClients(c *gin.Context, factory *kube.Factory) (*kube.Repository, *kuber
 	return kube.NewRepository(dynamicClient, factory.Namespace()), clientset, true
 }
 
-func getAgentView(ctx context.Context, namespace, agentName string, repo *kube.Repository, clientset *kubernetes.Clientset, c *gin.Context) (kube.AgentView, bool) {
+func getAgentView(ctx context.Context, namespace, agentName string, repo *kube.Repository, clientset kubernetes.Interface, c *gin.Context) (kube.AgentView, bool) {
 	devbox, svc, ing, found := getResources(ctx, namespace, agentName, repo, clientset, c)
 	if !found {
 		return kube.AgentView{}, false
@@ -535,31 +614,53 @@ func getAgentView(ctx context.Context, namespace, agentName string, repo *kube.R
 	return view, true
 }
 
-func getResources(ctx context.Context, namespace, agentName string, repo *kube.Repository, clientset *kubernetes.Clientset, c *gin.Context) (*unstructured.Unstructured, *corev1.Service, *networkingv1.Ingress, bool) {
+func getResources(ctx context.Context, namespace, agentName string, repo *kube.Repository, clientset kubernetes.Interface, c *gin.Context) (*unstructured.Unstructured, *corev1.Service, *networkingv1.Ingress, bool) {
+	devbox, svc, ing, err := getManagedResources(ctx, namespace, agentName, repo, clientset)
+	if err == nil {
+		return devbox, svc, ing, true
+	}
+
+	switch {
+	case apierrors.IsNotFound(err):
+		resource := strings.TrimSpace(err.Error())
+		switch {
+		case strings.Contains(resource, "services"):
+			writeKubernetesError(c, err, "service not found for agent")
+		case strings.Contains(resource, "ingresses"):
+			writeKubernetesError(c, err, "ingress not found for agent")
+		default:
+			writeKubernetesError(c, err, "agent not found")
+		}
+	default:
+		writeKubernetesError(c, err, "agent not found")
+	}
+
+	return nil, nil, nil, false
+}
+
+func getManagedResources(ctx context.Context, namespace, agentName string, repo *kube.Repository, clientset kubernetes.Interface) (*unstructured.Unstructured, *corev1.Service, *networkingv1.Ingress, error) {
 	devbox, err := repo.Get(ctx, agentName)
 	if err != nil {
-		writeKubernetesError(c, err, "agent not found")
-		return nil, nil, nil, false
+		return nil, nil, nil, err
 	}
 	if !kube.HasManagedLabel(devbox.GetLabels(), agentName) {
-		writeAppError(c, http.StatusNotFound, appErr.New(appErr.CodeNotFound, "agent not found"))
-		return nil, nil, nil, false
+		return nil, nil, nil, apierrors.NewNotFound(kube.ResourceGVR().GroupResource(), agentName)
 	}
 
 	svc, err := clientset.CoreV1().Services(namespace).Get(ctx, agentName, metav1.GetOptions{})
 	if err != nil {
-		writeKubernetesError(c, err, "service not found for agent")
-		return nil, nil, nil, false
+		return nil, nil, nil, err
 	}
+
 	ing, err := clientset.NetworkingV1().Ingresses(namespace).Get(ctx, agentName, metav1.GetOptions{})
 	if err != nil {
-		writeKubernetesError(c, err, "ingress not found for agent")
-		return nil, nil, nil, false
+		return nil, nil, nil, err
 	}
-	return devbox, svc, ing, true
+
+	return devbox, svc, ing, nil
 }
 
-func enrichIngressDomain(ctx context.Context, clientset *kubernetes.Clientset, view *kube.AgentView) {
+func enrichIngressDomain(ctx context.Context, clientset kubernetes.Interface, view *kube.AgentView) {
 	ing, err := clientset.NetworkingV1().Ingresses(view.Agent.Namespace).Get(ctx, view.Agent.Name, metav1.GetOptions{})
 	if err == nil {
 		view.Agent.IngressDomain = kube.IngressDomain(ing)

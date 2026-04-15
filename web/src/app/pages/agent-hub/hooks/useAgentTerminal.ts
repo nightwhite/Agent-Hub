@@ -49,10 +49,10 @@ const normalizeTerminalCwd = (input: string) => {
   }
 
   if (value.startsWith('/')) {
-    const matchedRoot = allowedRoots.find((root) => value === root || value.startsWith(`${root}/`))
+    const absolute = value.replace(/\/+$/, '') || '/'
+    const matchedRoot = allowedRoots.find((root) => absolute === root || absolute.startsWith(`${root}/`))
     if (matchedRoot) {
-      const relative = value.slice(matchedRoot.length).replace(/^\/+/, '')
-      return relative || '.'
+      return absolute
     }
 
     return '.'
@@ -202,13 +202,15 @@ export function useAgentTerminal({ clusterContext }: UseAgentTerminalOptions) {
       const wsUrl = buildAgentWebSocketUrl(resource.name)
       const socket = new WebSocket(wsUrl)
       const sessionId = `terminal-${Date.now()}`
+      let authSent = false
       let terminalOpened = false
 
       terminalSocketRef.current = socket
       terminalSocketSessionIdRef.current = sessionId
 
       const sendAuth = () => {
-        if (socket.readyState !== WebSocket.OPEN) return
+        if (socket.readyState !== WebSocket.OPEN || authSent) return
+        authSent = true
 
         socket.send(
           JSON.stringify({
@@ -220,8 +222,6 @@ export function useAgentTerminal({ clusterContext }: UseAgentTerminalOptions) {
           }),
         )
       }
-
-      socket.addEventListener('open', sendAuth)
 
       socket.addEventListener('message', (event) => {
         let messagePayload: TerminalMessage | null = null
@@ -296,6 +296,9 @@ export function useAgentTerminal({ clusterContext }: UseAgentTerminalOptions) {
             break
           }
           case 'error': {
+            if (String(data.code || '') === 'already_authenticated') {
+              break
+            }
             setTerminalSession((current) =>
               current
                 ? {

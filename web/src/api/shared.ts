@@ -153,8 +153,8 @@ const buildHeaders = (clusterContext) => {
 export const buildAuthorizedRequestOptions = (clusterContext, options = {}) => ({
   ...options,
   headers: {
-    ...(options.headers || {}),
     ...buildHeaders(clusterContext),
+    ...(options.headers || {}),
   },
 })
 
