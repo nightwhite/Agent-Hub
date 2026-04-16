@@ -53,22 +53,24 @@ a {
 }
 
 /* Base Component Utilities */
-.btn-primary {
-  @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-medium text-white transition-all hover:bg-brand-hover active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
-}
+@layer components {
+  .btn-primary {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-medium text-white transition-all hover:bg-brand-hover active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+  }
 
-.card {
-  @apply rounded-xl border border-border bg-surface shadow-sm;
-}
+  .card {
+    @apply rounded-xl border border-border bg-surface shadow-sm;
+  }
 
-.input {
-  @apply h-10 w-full rounded-lg border border-border bg-white px-3 text-sm text-text shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all placeholder:text-muted focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/8;
-}
+  .input {
+    @apply h-10 w-full rounded-lg border border-border bg-white px-3 text-sm text-text shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all placeholder:text-muted focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/8;
+  }
 
-.badge-success {
-  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100;
-}
+  .badge-success {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100;
+  }
 
-.field-input {
-  @apply w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-text shadow-[0_1px_2px_rgba(0,0,0,0.04)] outline-none transition-all placeholder:text-muted focus:border-brand focus:ring-4 focus:ring-brand/8;
+  .field-input {
+    @apply h-10 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-text shadow-[0_1px_2px_rgba(0,0,0,0.04)] outline-none transition-all placeholder:text-muted focus:border-brand focus:ring-4 focus:ring-brand/8;
+  }
 }

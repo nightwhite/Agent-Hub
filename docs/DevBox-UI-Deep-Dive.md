@@ -201,6 +201,14 @@ Header 的 back 行为与来源耦合：
 
 - Runtime/DevboxName 的 FormItem 带 `min-w-[700px]`
   - 这不是“偷懒”，而是明确告诉系统：不要在桌面小窗下把表单挤成一列难看的窄输入框
+- **输入框不是 `w-full`，而是“固定宽度 + 留白”**（避免大屏拉伸、也避免小窗挤压成响应式形变）
+  - DevboxName：`Input className="h-10 w-[400px]"`（`create/components/DevboxName.tsx`）
+  - Runtime：左侧信息容器固定 `w-[500px]`（`create/components/Runtime.tsx`）
+
+实现启示（Agent Hub 复刻时的坑）：
+
+- 如果项目用 `@apply` 定义了类似 `.field-input { @apply w-full ... }` 的基础类，且这段 CSS 写在 Tailwind utilities 之后，会导致 `w-[400px]` 这类宽度覆盖失效（看起来像“明明写了固定宽度却还在自适应”）。
+- 正确做法是把这类基础样式放进 `@layer components`（或更早的层），让 Tailwind utilities 能覆盖它，从而实现 DevBox 的“固定宽度 + 留白”节奏。
 
 #### 3.3.3 资源配置控件：滑杆是为“快速决策”服务
 
@@ -330,4 +338,3 @@ Header 的 back 行为与来源耦合：
 2. 列表页引入 DevBox 的 Header + Table 交互结构（列头过滤/排序）
 3. 模板页引入 DevBox 的“Tabs + Search + 视图模式”思路（至少先做到结构一致）
 4. 性能策略对齐：列表轮询节流、viewport 优先、变更检测更新
-
