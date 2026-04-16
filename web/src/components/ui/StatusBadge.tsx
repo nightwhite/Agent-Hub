@@ -22,7 +22,12 @@ interface StatusBadgeProps {
 
 export function StatusBadge({ status }: StatusBadgeProps) {
   return (
-    <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', badgeClassName[status])}>
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium',
+        badgeClassName[status],
+      )}
+    >
       <span className={cn('mr-1.5 h-1.5 w-1.5 rounded-full', dotClassName[status])} />
       {getStatusText(status)}
     </span>

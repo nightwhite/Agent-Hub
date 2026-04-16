@@ -1,0 +1,12 @@
+id: hermes-agent
+name: Hermes Agent
+workingDir: /opt/hermes
+manifestDir: manifests
+bootstrap:
+  script: bootstrap.sh
+  shell: bash
+  timeoutSeconds: 180
+healthcheck:
+  script: healthcheck.sh
+  shell: bash
+  timeoutSeconds: 60

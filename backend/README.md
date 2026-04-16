@@ -134,7 +134,7 @@ INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-agent:late
 - `api/frontend-live-examples.md`
 
 默认配置来自环境变量：
-- `PORT`：默认 `8080`
+- `PORT`：默认 `8999`
 - `INGRESS_SUFFIX`：默认 `agent.usw-1.sealos.app`
 - `AGENT_IMAGE`：默认 `nousresearch/hermes-agent:latest`
 - `AGENT_MANIFEST_TEMPLATE_DIR`：默认自动探测仓库内 `template/hermes-agent/manifests`
@@ -143,13 +143,13 @@ INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-agent:late
 说明：
 - `AIPROXY_BASE_URL` 只用于后端访问 AIProxy token 管理接口
 - Hermes 部署时写入 `agent-model-baseurl` 的模型地址，不走这个配置
-- 当前前端会根据集群地址自动推导模型地址，例如 `https://usw-1.sealos.io:6443` 会推导为 `https://aiproxy.usw-1.sealos.io`
+- 当前前后端会根据集群地址自动推导模型地址，例如 `https://usw-1.sealos.io:6443` 会推导为 `https://aiproxy.usw-1.sealos.io/v1`
 
 健康检查：
 
 ```bash
-curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:8080/readyz
+curl http://127.0.0.1:8999/healthz
+curl http://127.0.0.1:8999/readyz
 ```
 
 ## Current endpoint status
@@ -182,7 +182,7 @@ curl http://127.0.0.1:8080/readyz
 本地开发默认：
 
 ```text
-http://127.0.0.1:8080
+http://127.0.0.1:8999
 ```
 
 ### 统一响应格式
@@ -709,7 +709,7 @@ PY
 ```bash
 curl -s \
   -H "Authorization: $KCFG_ENCODED" \
-  http://127.0.0.1:8080/api/v1/agents
+  http://127.0.0.1:8999/api/v1/agents
 ```
 
 ### 3. Create
@@ -718,7 +718,7 @@ curl -s \
 curl -s -X POST \
   -H "Authorization: $KCFG_ENCODED" \
   -H "Content-Type: application/json" \
-  http://127.0.0.1:8080/api/v1/agents \
+  http://127.0.0.1:8999/api/v1/agents \
   -d '{
     "agent-name": "demo-agent",
     "agent-cpu": "1000m",
@@ -737,7 +737,7 @@ curl -s -X POST \
 ```bash
 curl -s \
   -H "Authorization: $KCFG_ENCODED" \
-  http://127.0.0.1:8080/api/v1/agents/demo-agent
+  http://127.0.0.1:8999/api/v1/agents/demo-agent
 ```
 
 ### 5. Update
@@ -746,7 +746,7 @@ curl -s \
 curl -s -X PATCH \
   -H "Authorization: $KCFG_ENCODED" \
   -H "Content-Type: application/json" \
-  http://127.0.0.1:8080/api/v1/agents/demo-agent \
+  http://127.0.0.1:8999/api/v1/agents/demo-agent \
   -d '{
     "agent-cpu": "2000m",
     "agent-memory": "4Gi",
@@ -759,7 +759,7 @@ curl -s -X PATCH \
 ```bash
 curl -s \
   -H "Authorization: $KCFG_ENCODED" \
-  http://127.0.0.1:8080/api/v1/agents/demo-agent/key
+  http://127.0.0.1:8999/api/v1/agents/demo-agent/key
 ```
 
 说明：
@@ -771,7 +771,7 @@ curl -s \
 ```bash
 curl -s -X POST \
   -H "Authorization: $KCFG_ENCODED" \
-  http://127.0.0.1:8080/api/v1/agents/demo-agent/key/rotate
+  http://127.0.0.1:8999/api/v1/agents/demo-agent/key/rotate
 ```
 
 ### 8. Stop
@@ -779,7 +779,7 @@ curl -s -X POST \
 ```bash
 curl -s -X POST \
   -H "Authorization: $KCFG_ENCODED" \
-  http://127.0.0.1:8080/api/v1/agents/demo-agent/pause
+  http://127.0.0.1:8999/api/v1/agents/demo-agent/pause
 ```
 
 ### 9. Start
@@ -787,7 +787,7 @@ curl -s -X POST \
 ```bash
 curl -s -X POST \
   -H "Authorization: $KCFG_ENCODED" \
-  http://127.0.0.1:8080/api/v1/agents/demo-agent/run
+  http://127.0.0.1:8999/api/v1/agents/demo-agent/run
 ```
 
 ### 10. Delete
@@ -795,7 +795,7 @@ curl -s -X POST \
 ```bash
 curl -s -X DELETE \
   -H "Authorization: $KCFG_ENCODED" \
-  http://127.0.0.1:8080/api/v1/agents/demo-agent
+  http://127.0.0.1:8999/api/v1/agents/demo-agent
 ```
 
 ## Known notes

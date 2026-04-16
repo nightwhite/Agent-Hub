@@ -33,6 +33,7 @@ func New(cfg config.Config) *gin.Engine {
 		v1.GET("/agents/:agentName/key", handler.GetAgentKey)
 		v1.POST("/agents/:agentName/key/rotate", handler.RotateAgentKey)
 		v1.POST("/agents/:agentName/chat/completions", handler.ChatCompletions)
+		v1.POST("/agents/:agentName/terminal/session", handler.CreateAgentTerminalSession)
 		v1.GET("/agents/:agentName/ws", handler.AgentWebSocket)
 	}
 

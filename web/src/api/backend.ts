@@ -41,7 +41,7 @@ const createBackendError = (response, payload) => {
   return error
 }
 
-const requestBackend = async (path, clusterContext, options = {}) => {
+export const requestBackend = async (path, clusterContext, options = {}) => {
   const response = await fetch(buildBackendUrl(path), buildAuthorizedRequestOptions(clusterContext, options))
   const text = await response.text().catch(() => '')
 

@@ -4,7 +4,7 @@ export type ResourceType = 'devbox' | 'service' | 'ingress'
 
 export type AgentRuntimeStatus = 'running' | 'creating' | 'stopped' | 'error'
 
-export type AgentActionCapability = 'chat' | 'terminal'
+export type AgentActionCapability = 'chat' | 'terminal' | 'files'
 
 export interface ResourcePreset {
   id: 'minimum' | 'recommended' | 'luxury' | 'custom'
@@ -12,6 +12,12 @@ export interface ResourcePreset {
   description: string
   cpu: string
   memory: string
+}
+
+export interface AgentModelOption {
+  value: string
+  label: string
+  helper?: string
 }
 
 export interface AgentTemplateDefinition {
@@ -138,6 +144,7 @@ export interface AgentListItem {
   cpu: string
   memory: string
   storage: string
+  workingDir: string
   apiUrl: string
   apiKey: string
   templateId: AgentTemplateId
@@ -148,8 +155,13 @@ export interface AgentListItem {
   modelBaseURL: string
   model: string
   hasModelAPIKey: boolean
+  ready: boolean
+  bootstrapPhase: string
+  bootstrapMessage: string
   chatAvailable: boolean
   chatDisabledReason: string
+  terminalAvailable: boolean
+  terminalDisabledReason: string
   yaml: Record<string, unknown>
 }
 
@@ -189,12 +201,54 @@ export interface ChatSessionState {
   messages: ChatMessage[]
 }
 
+export interface AgentTerminalDescriptor {
+  terminalName: string
+  iframeUrl: string
+  namespace: string
+  podName: string
+  containerName: string
+  command: string
+  keepaliveSeconds: number
+  availableReplicas: number
+}
+
 export interface TerminalSessionState {
   resource: AgentListItem
-  status: 'initializing' | 'connecting' | 'connected' | 'disconnected' | 'error'
+  status: 'initializing' | 'connecting' | 'reconnecting' | 'connected' | 'disconnected' | 'error'
+  error: string
+  podName: string
+  containerName: string
+  namespace: string
+  terminalName: string
+  iframeUrl: string
+  command: string
+  keepaliveSeconds: number
+  availableReplicas: number
+  wsUrl: string
+  terminalId: string
+  cwd: string
+}
+
+export interface AgentFileItem {
+  name: string
+  path: string
+  type: 'file' | 'dir' | 'other'
+  size: number
+}
+
+export interface FilesSessionState {
+  resource: AgentListItem
+  status: 'initializing' | 'connecting' | 'connected' | 'working' | 'disconnected' | 'error'
   error: string
   podName: string
   containerName: string
   namespace: string
   wsUrl: string
+  rootPath: string
+  currentPath: string
+  items: AgentFileItem[]
+  selectedPath: string
+  selectedType: 'file' | 'dir' | 'other' | ''
+  selectedContent: string
+  dirty: boolean
 }

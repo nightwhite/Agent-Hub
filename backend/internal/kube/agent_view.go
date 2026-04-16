@@ -28,6 +28,17 @@ func DevboxToAgentView(devbox *unstructured.Unstructured) (AgentView, error) {
 	}
 
 	annotations := devbox.GetAnnotations()
+	templateID := strings.TrimSpace(annotations[annotationTemplateID])
+	if templateID == "" {
+		templateID = strings.TrimSpace(devbox.GetLabels()["app.kubernetes.io/name"])
+	}
+	if templateID == "" {
+		templateID = "hermes-agent"
+	}
+	bootstrapPhase := ""
+	if rawPhase := strings.TrimSpace(annotations[annotationBootstrapPhase]); rawPhase != "" {
+		bootstrapPhase = normalizeBootstrapPhase(rawPhase)
+	}
 	createdAt := devbox.GetCreationTimestamp().Format(time.RFC3339)
 	if ts, found, _ := unstructured.NestedString(devbox.Object, "metadata", "creationTimestamp"); found && strings.TrimSpace(ts) != "" {
 		createdAt = ts
@@ -40,18 +51,23 @@ func DevboxToAgentView(devbox *unstructured.Unstructured) (AgentView, error) {
 
 	view := AgentView{
 		Agent: agent.Agent{
-			Name:          name,
-			AliasName:     strings.TrimSpace(annotations["agent.sealos.io/alias-name"]),
-			Namespace:     namespace,
-			CPU:           strings.TrimSpace(cpu),
-			Memory:        strings.TrimSpace(memory),
-			Storage:       strings.TrimSpace(storage),
-			ModelProvider: strings.TrimSpace(annotations["agent.sealos.io/model-provider"]),
-			ModelBaseURL:  strings.TrimSpace(annotations["agent.sealos.io/model-baseurl"]),
-			Model:         strings.TrimSpace(annotations["agent.sealos.io/model"]),
-			ModelAPIKey:   envValue(devbox, "AGENT_MODEL_APIKEY"),
-			APIServerKey:  envValue(devbox, "API_SERVER_KEY"),
-			Status:        stateToStatus(state),
+			Name:             name,
+			TemplateID:       templateID,
+			AliasName:        strings.TrimSpace(annotations[annotationAliasName]),
+			Namespace:        namespace,
+			CPU:              strings.TrimSpace(cpu),
+			Memory:           strings.TrimSpace(memory),
+			Storage:          strings.TrimSpace(storage),
+			WorkingDir:       workingDir(devbox),
+			ModelProvider:    strings.TrimSpace(annotations[annotationModelProvider]),
+			ModelBaseURL:     strings.TrimSpace(annotations[annotationModelBaseURL]),
+			Model:            strings.TrimSpace(annotations[annotationModel]),
+			ModelAPIKey:      envValue(devbox, "AGENT_MODEL_APIKEY"),
+			APIServerKey:     envValue(devbox, "API_SERVER_KEY"),
+			BootstrapPhase:   bootstrapPhase,
+			BootstrapMessage: strings.TrimSpace(annotations[annotationBootstrapMessage]),
+			Ready:            bootstrapPhase == "" || bootstrapPhase == BootstrapPhaseReady,
+			Status:           stateToStatus(state),
 		},
 		CreatedAt: createdAt,
 	}
@@ -121,6 +137,11 @@ func envValue(devbox *unstructured.Unstructured, name string) string {
 	return ""
 }
 
+func workingDir(devbox *unstructured.Unstructured) string {
+	value, _, _ := unstructured.NestedString(devbox.Object, "spec", "config", "workingDir")
+	return strings.TrimSpace(value)
+}
+
 func SetEnvValue(devbox *unstructured.Unstructured, name, value string) error {
 	envs, found, _ := unstructured.NestedSlice(devbox.Object, "spec", "config", "env")
 	if !found {
@@ -164,7 +185,7 @@ func HasManagedLabel(obj map[string]string, agentName string) bool {
 	if obj == nil {
 		return false
 	}
-	return strings.TrimSpace(obj["agent.sealos.io/name"]) == agentName && strings.TrimSpace(obj["app.kubernetes.io/name"]) == "hermes-agent"
+	return strings.TrimSpace(obj["agent.sealos.io/name"]) == agentName && strings.TrimSpace(obj["agent.sealos.io/managed-by"]) == managedByValue
 }
 
 func SortViewsByCreatedAtDesc(items []AgentView) {

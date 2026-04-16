@@ -16,18 +16,23 @@ import type {
 
 type BackendAgentItem = {
   agentName: string
+  templateId?: string
   aliasName?: string
   namespace: string
   status: string
   cpu: string
   memory: string
   storage: string
+  workingDir?: string
   modelProvider: string
   modelBaseURL: string
   model: string
   hasModelAPIKey: boolean
   ingressDomain?: string
   apiBaseURL?: string
+  ready?: boolean
+  bootstrapPhase?: string
+  bootstrapMessage?: string
   createdAt?: string
 }
 
@@ -214,6 +219,7 @@ export const mapResourcesToAgentListItems = (
       cpu: blueprint.cpu,
       memory: blueprint.memory,
       storage: blueprint.storageLimit,
+      workingDir: blueprint.workingDir,
       apiUrl: blueprint.apiUrl,
       apiKey: blueprint.apiKey || item.apiKey || '',
       templateId: blueprint.productType,
@@ -224,8 +230,13 @@ export const mapResourcesToAgentListItems = (
       modelBaseURL: blueprint.modelBaseURL,
       model: blueprint.model,
       hasModelAPIKey: blueprint.hasModelAPIKey,
+      ready: runtimeStatus === 'running',
+      bootstrapPhase: '',
+      bootstrapMessage: '',
       chatAvailable: Boolean(blueprint.apiKey),
       chatDisabledReason: blueprint.apiKey ? '' : '当前实例未暴露可直接使用的 API Key。',
+      terminalAvailable: runtimeStatus === 'running',
+      terminalDisabledReason: runtimeStatus === 'running' ? '' : '当前实例未处于可用状态。',
       yaml: item.yaml,
     }
   })
@@ -269,7 +280,7 @@ export const createBlueprintFromAgentItem = (item: AgentListItem): AgentBlueprin
     serviceType: 'ClusterIP',
     protocol: 'TCP',
     user: item.owner,
-    workingDir: item.template.defaultWorkingDirectory,
+    workingDir: item.workingDir || item.template.defaultWorkingDirectory,
     argsText: item.template.defaultArgs.join(' '),
     modelProvider: item.modelProvider,
     modelBaseURL: item.modelBaseURL,
@@ -283,9 +294,16 @@ export const mapBackendAgentsToListItems = (
   clusterInfo: ClusterInfo | null,
 ): AgentListItem[] =>
   (Array.isArray(items) ? items : []).map((item) => {
-    const templateId = resolveTemplateById('hermes-agent').id
+    const templateId =
+      item.templateId && item.templateId in AGENT_TEMPLATES
+        ? (item.templateId as AgentListItem['templateId'])
+        : resolveTemplateById('hermes-agent').id
     const template = AGENT_TEMPLATES[templateId]
     const runtimeStatus = mapRawStatusToRuntimeStatus(item.status)
+    const bootstrapMessage = String(item.bootstrapMessage || '').trim()
+    const ready = Boolean(item.ready)
+    const chatAvailable = ready && Boolean(item.apiBaseURL)
+    const terminalAvailable = ready
 
     return {
       id: item.agentName,
@@ -300,6 +318,7 @@ export const mapBackendAgentsToListItems = (
       cpu: item.cpu,
       memory: item.memory,
       storage: item.storage,
+      workingDir: item.workingDir || template.defaultWorkingDirectory,
       apiUrl: item.apiBaseURL || '',
       apiKey: '',
       templateId,
@@ -314,8 +333,15 @@ export const mapBackendAgentsToListItems = (
       modelBaseURL: item.modelBaseURL,
       model: item.model,
       hasModelAPIKey: Boolean(item.hasModelAPIKey),
-      chatAvailable: Boolean(item.apiBaseURL),
-      chatDisabledReason: item.apiBaseURL ? '' : '当前实例还没有可用的公网 API 地址。',
+      ready,
+      bootstrapPhase: item.bootstrapPhase || '',
+      bootstrapMessage,
+      chatAvailable,
+      chatDisabledReason: chatAvailable
+        ? ''
+        : bootstrapMessage || (item.apiBaseURL ? '当前实例尚未完成初始化。' : '当前实例还没有可用的公网 API 地址。'),
+      terminalAvailable,
+      terminalDisabledReason: terminalAvailable ? '' : bootstrapMessage || '当前实例尚未完成初始化。',
       yaml: {
         agentName: item.agentName,
         aliasName: item.aliasName || '',

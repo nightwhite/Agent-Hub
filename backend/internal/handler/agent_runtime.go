@@ -33,6 +33,14 @@ func enrichAgentRuntimeStatus(ctx context.Context, clientset kubernetes.Interfac
 	view.Agent.Status = resolveAgentRuntimeStatus(ctx, clientset, devbox, view.Agent.Namespace, view.Agent.Name)
 }
 
+func enrichAgentRuntimeStatusWithPod(devbox *unstructured.Unstructured, view *kube.AgentView, pod *corev1.Pod) {
+	if view == nil || devbox == nil {
+		return
+	}
+
+	view.Agent.Status = resolveAgentRuntimeStatusFromPod(devbox, pod)
+}
+
 func resolveAgentRuntimeStatus(
 	ctx context.Context,
 	clientset kubernetes.Interface,
@@ -47,6 +55,11 @@ func resolveAgentRuntimeStatus(
 		return agent.StatusDeleting
 	}
 
+	bootstrapPhase := kube.BootstrapPhase(devbox)
+	if bootstrapPhase == kube.BootstrapPhaseFailed {
+		return agent.StatusFailed
+	}
+
 	desiredState := strings.ToLower(strings.TrimSpace(nestedString(devbox, "spec", "state")))
 	switch desiredState {
 	case "paused", "stopped":
@@ -59,10 +72,40 @@ func resolveAgentRuntimeStatus(
 
 	pod, err := getLatestAgentPod(ctx, clientset, namespace, agentName)
 	if err == nil && pod != nil {
-		return statusFromPod(pod)
+		return resolveAgentRuntimeStatusFromPod(devbox, pod)
 	}
 
-	return statusFromDevbox(devbox, desiredState)
+	return statusFromDevbox(devbox, desiredState, bootstrapPhase)
+}
+
+func resolveAgentRuntimeStatusFromPod(devbox *unstructured.Unstructured, pod *corev1.Pod) agent.Status {
+	if devbox == nil {
+		return agent.StatusFailed
+	}
+	if devbox.GetDeletionTimestamp() != nil {
+		return agent.StatusDeleting
+	}
+
+	bootstrapPhase := kube.BootstrapPhase(devbox)
+	if bootstrapPhase == kube.BootstrapPhaseFailed {
+		return agent.StatusFailed
+	}
+
+	desiredState := strings.ToLower(strings.TrimSpace(nestedString(devbox, "spec", "state")))
+	switch desiredState {
+	case "paused", "stopped":
+		return agent.StatusPaused
+	case "failed", "error":
+		return agent.StatusFailed
+	case "deleting":
+		return agent.StatusDeleting
+	}
+
+	if pod != nil {
+		return statusFromPod(pod, bootstrapPhase)
+	}
+
+	return statusFromDevbox(devbox, desiredState, bootstrapPhase)
 }
 
 func getLatestAgentPod(ctx context.Context, clientset kubernetes.Interface, namespace, agentName string) (*corev1.Pod, error) {
@@ -90,7 +133,50 @@ func getLatestAgentPod(ctx context.Context, clientset kubernetes.Interface, name
 	return &items[0], nil
 }
 
-func statusFromPod(pod *corev1.Pod) agent.Status {
+func listLatestAgentPods(ctx context.Context, clientset kubernetes.Interface, namespace string) (map[string]*corev1.Pod, error) {
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "agent.sealos.io/name",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	latest := make(map[string]*corev1.Pod, len(pods.Items))
+	for i := range pods.Items {
+		pod := pods.Items[i]
+		agentName := strings.TrimSpace(pod.GetLabels()["agent.sealos.io/name"])
+		if agentName == "" {
+			continue
+		}
+
+		current := latest[agentName]
+		if shouldReplaceLatestPod(current, &pod) {
+			latest[agentName] = pod.DeepCopy()
+		}
+	}
+
+	return latest, nil
+}
+
+func shouldReplaceLatestPod(current, candidate *corev1.Pod) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+
+	currentDeleting := current.DeletionTimestamp != nil
+	candidateDeleting := candidate.DeletionTimestamp != nil
+
+	if currentDeleting != candidateDeleting {
+		return !candidateDeleting
+	}
+
+	return candidate.CreationTimestamp.Time.After(current.CreationTimestamp.Time)
+}
+
+func statusFromPod(pod *corev1.Pod, bootstrapPhase string) agent.Status {
 	if pod == nil {
 		return agent.StatusCreating
 	}
@@ -104,6 +190,9 @@ func statusFromPod(pod *corev1.Pod) agent.Status {
 	switch pod.Status.Phase {
 	case corev1.PodRunning:
 		if isPodReady(pod) {
+			if bootstrapPhase != "" && bootstrapPhase != kube.BootstrapPhaseReady {
+				return agent.StatusStarting
+			}
 			return agent.StatusRunning
 		}
 		return agent.StatusCreating
@@ -118,13 +207,16 @@ func statusFromPod(pod *corev1.Pod) agent.Status {
 	}
 }
 
-func statusFromDevbox(devbox *unstructured.Unstructured, desiredState string) agent.Status {
+func statusFromDevbox(devbox *unstructured.Unstructured, desiredState string, bootstrapPhase string) agent.Status {
 	if hasFailedPodSync(devbox) {
 		return agent.StatusFailed
 	}
 
 	switch strings.ToLower(strings.TrimSpace(nestedString(devbox, "status", "phase"))) {
 	case "running":
+		if bootstrapPhase != "" && bootstrapPhase != kube.BootstrapPhaseReady {
+			return agent.StatusStarting
+		}
 		return agent.StatusRunning
 	case "paused", "stopped":
 		return agent.StatusPaused

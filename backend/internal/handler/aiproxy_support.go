@@ -9,6 +9,7 @@ import (
 )
 
 const fallbackAIProxyBaseURL = "https://aiproxy-web.hzh.sealos.run"
+const fallbackAIProxyModelBaseURL = "https://aiproxy.hzh.sealos.run/v1"
 const agentHubAIProxyTokenDisplayName = "Agent-Hub"
 
 func resolveAIProxyBaseURL(explicitBaseURL, clusterServer string) string {
@@ -24,6 +25,26 @@ func resolveAIProxyBaseURL(explicitBaseURL, clusterServer string) string {
 }
 
 func deriveAIProxyBaseURL(clusterServer string) string {
+	return deriveClusterServiceURL(clusterServer, "aiproxy-web")
+}
+
+func resolveAIProxyModelBaseURL(explicitBaseURL, clusterServer string) string {
+	if baseURL := strings.TrimSpace(explicitBaseURL); baseURL != "" {
+		return normalizeAIProxyModelBaseURL(baseURL)
+	}
+
+	if derived := deriveAIProxyModelBaseURL(clusterServer); derived != "" {
+		return normalizeAIProxyModelBaseURL(derived)
+	}
+
+	return normalizeAIProxyModelBaseURL(fallbackAIProxyModelBaseURL)
+}
+
+func deriveAIProxyModelBaseURL(clusterServer string) string {
+	return normalizeAIProxyModelBaseURL(deriveClusterServiceURL(clusterServer, "aiproxy"))
+}
+
+func deriveClusterServiceURL(clusterServer, subdomain string) string {
 	parsed, err := url.Parse(strings.TrimSpace(clusterServer))
 	if err != nil {
 		return ""
@@ -37,7 +58,32 @@ func deriveAIProxyBaseURL(clusterServer string) string {
 		return ""
 	}
 
-	return "https://aiproxy-web." + host
+	return "https://" + subdomain + "." + host
+}
+
+func normalizeAIProxyModelBaseURL(value string) string {
+	baseURL := strings.TrimSpace(value)
+	if baseURL == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return baseURL
+	}
+	if strings.TrimSpace(parsed.Scheme) == "" || strings.TrimSpace(parsed.Host) == "" {
+		return baseURL
+	}
+
+	path := strings.TrimSpace(parsed.Path)
+	switch path {
+	case "", "/":
+		parsed.Path = "/v1"
+	default:
+		parsed.Path = strings.TrimRight(path, "/")
+	}
+
+	return strings.TrimRight(parsed.String(), "/")
 }
 
 func isAIProxyConflictLike(err error) bool {

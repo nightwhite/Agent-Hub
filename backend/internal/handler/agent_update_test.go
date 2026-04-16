@@ -93,8 +93,9 @@ func newUpdateAgentTestFixtures(t *testing.T, namespace, agentName string) (*kub
 				"name":      agentName,
 				"namespace": namespace,
 				"labels": map[string]any{
-					"app.kubernetes.io/name": "hermes-agent",
-					"agent.sealos.io/name":   agentName,
+					"app.kubernetes.io/name":     "hermes-agent",
+					"agent.sealos.io/name":       agentName,
+					"agent.sealos.io/managed-by": kube.ManagedByValue(),
 				},
 				"annotations": map[string]any{
 					"agent.sealos.io/alias-name":     "Old Alias",
@@ -159,4 +160,18 @@ func newUpdateAgentTestFixtures(t *testing.T, namespace, agentName string) (*kub
 	)
 
 	return repo, clientset
+}
+
+func TestNormalizeUpdatedModelBaseURLOnlyNormalizesCustomProvider(t *testing.T) {
+	t.Parallel()
+
+	customProvider := "custom"
+	if got := normalizeUpdatedModelBaseURL("https://aiproxy.usw-1.sealos.io", "openai", &customProvider); got != "https://aiproxy.usw-1.sealos.io/v1" {
+		t.Fatalf("normalizeUpdatedModelBaseURL() for custom = %q, want /v1 suffix", got)
+	}
+
+	anthropicProvider := "anthropic"
+	if got := normalizeUpdatedModelBaseURL("https://api.anthropic.com", "custom", &anthropicProvider); got != "https://api.anthropic.com" {
+		t.Fatalf("normalizeUpdatedModelBaseURL() for anthropic = %q, want unchanged", got)
+	}
 }

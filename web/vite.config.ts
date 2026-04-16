@@ -8,7 +8,7 @@ import { parse as parseYaml } from 'yaml'
 
 const DEFAULT_K8S_SERVER = process.env.VITE_DEFAULT_K8S_SERVER || ''
 const FALLBACK_PROXY_TARGET = DEFAULT_K8S_SERVER || 'https://127.0.0.1:6443'
-const BACKEND_PROXY_TARGET = process.env.VITE_AGENTHUB_BACKEND_TARGET || 'http://127.0.0.1:8080'
+const BACKEND_PROXY_TARGET = process.env.VITE_AGENTHUB_BACKEND_TARGET || 'http://127.0.0.1:8999'
 const INSECURE_HTTPS_AGENT = new https.Agent({ rejectUnauthorized: false })
 
 const toScalar = (value: unknown) => {

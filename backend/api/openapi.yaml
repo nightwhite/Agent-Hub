@@ -5,7 +5,7 @@ info:
   description: |
     Backend API draft for managing hermes-agent instances backed by Sealos Devbox.
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8999
 paths:
   /healthz:
     get:

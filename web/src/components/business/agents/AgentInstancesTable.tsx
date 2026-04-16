@@ -1,16 +1,17 @@
-import { Check, Copy, MessageSquare, PauseCircle, PlayCircle, Settings, Terminal, Trash2 } from 'lucide-react'
-import { formatCpu, formatMemory, formatStorage } from '../../../lib/format'
+import { formatTime } from '../../../lib/format'
 import type { AgentListItem } from '../../../domains/agents/types'
-import { Button } from '../../ui/Button'
 import { EmptyState } from '../../ui/EmptyState'
-import { StatusBadge } from '../../ui/StatusBadge'
+import { AgentActionsCell } from './list/AgentActionsCell'
+import { AgentNameCell } from './list/AgentNameCell'
+import { AgentResourcesCell } from './list/AgentResourcesCell'
+import { AgentStatusCell } from './list/AgentStatusCell'
 
 interface AgentInstancesTableProps {
   items: AgentListItem[]
-  copiedValue: string
   onCreate: () => void
-  onCopy: (value: string, key: string) => void
+  onOpenDetail: (item: AgentListItem) => void
   onChat: (item: AgentListItem) => void
+  onFiles: (item: AgentListItem) => void
   onTerminal: (item: AgentListItem) => void
   onToggleState: (item: AgentListItem) => void
   onEdit: (item: AgentListItem) => void
@@ -19,10 +20,10 @@ interface AgentInstancesTableProps {
 
 export function AgentInstancesTable({
   items,
-  copiedValue,
   onCreate,
-  onCopy,
+  onOpenDetail,
   onChat,
+  onFiles,
   onTerminal,
   onToggleState,
   onEdit,
@@ -43,125 +44,39 @@ export function AgentInstancesTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left">
-          <thead className="bg-slate-50/80">
-            <tr>
-              <th className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">实例</th>
-              <th className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">模板</th>
-              <th className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">状态</th>
-              <th className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">资源规格</th>
-              <th className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">API 地址</th>
-              <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">操作</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {items.map((item) => {
-              const displayName = item.aliasName || item.name
-              const canChat =
-                item.template.capabilities.includes('chat') && item.status === 'running' && item.chatAvailable
-              const canTerminal = item.template.capabilities.includes('terminal') && item.status === 'running'
-              const canToggleState = item.status === 'running' || item.status === 'stopped'
-              const toggleTitle =
-                item.status === 'running'
-                  ? '暂停'
-                  : item.status === 'stopped'
-                    ? '启动'
-                    : '当前状态不可切换运行态'
-              const copyKey = `${item.id}:api-url`
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 overflow-x-auto">
+        <div className="flex min-h-full min-w-[1040px] flex-col gap-2">
+          <div className="grid grid-cols-[minmax(0,2.3fr)_minmax(0,1fr)_minmax(0,1fr)_96px_280px] items-center rounded-lg border border-zinc-200 bg-white px-4 py-2 text-xs text-zinc-500 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
+            <div>实例</div>
+            <div>状态</div>
+            <div>资源规格</div>
+            <div>更新时间</div>
+            <div className="text-right">操作</div>
+          </div>
 
-              return (
-                <tr className="group transition hover:bg-slate-50/80" key={item.id}>
-                  <td className="px-6 py-5 align-top">
-                    <div className="font-medium text-slate-950">{displayName}</div>
-                    <div className="mt-1 text-[11px] text-slate-400">实例名: {item.name}</div>
-                  </td>
-                  <td className="px-6 py-5 align-top">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                        <img alt={`${item.template.name} logo`} className="h-8 w-8 object-cover" src={item.template.logo} />
-                      </div>
-                      <div>
-                        <div className="font-medium text-slate-950">{item.template.name}</div>
-                        <div className="mt-1 text-xs text-slate-400">{item.template.docsLabel}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 align-top">
-                    <StatusBadge status={item.status} />
-                  </td>
-                  <td className="px-6 py-5 align-top">
-                    <div className="space-y-1 text-sm text-slate-600">
-                      <div>CPU: {formatCpu(item.cpu)}</div>
-                      <div>内存: {formatMemory(item.memory)}</div>
-                      <div>存储: {formatStorage(item.storage)}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 align-top">
-                    <div className="flex max-w-[280px] items-center gap-2">
-                      <span className="truncate text-sm text-slate-500">{item.apiUrl || '当前未生成公网地址'}</span>
-                      <button
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!item.apiUrl}
-                        onClick={() => onCopy(item.apiUrl, copyKey)}
-                        type="button"
-                      >
-                        {copiedValue === copyKey ? <Check size={15} /> : <Copy size={15} />}
-                      </button>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 align-top">
-                    <div className="flex justify-end gap-1 opacity-100 transition md:opacity-0 md:group-hover:opacity-100">
-                      <Button
-                        className="h-9 w-9 px-0"
-                        disabled={!canChat}
-                        onClick={() => onChat(item)}
-                        title={canChat ? '对话' : item.chatDisabledReason || '当前模板或状态不支持对话'}
-                        type="button"
-                        variant="ghost"
-                      >
-                        <MessageSquare size={16} />
-                      </Button>
-                      <Button
-                        className="h-9 w-9 px-0"
-                        disabled={!canTerminal}
-                        onClick={() => onTerminal(item)}
-                        title={canTerminal ? '终端' : '当前状态不可进入终端'}
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Terminal size={16} />
-                      </Button>
-                      <Button
-                        className="h-9 w-9 px-0"
-                        disabled={!canToggleState}
-                        onClick={() => onToggleState(item)}
-                        title={toggleTitle}
-                        type="button"
-                        variant="ghost"
-                      >
-                        {item.status === 'running' ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
-                      </Button>
-                      <Button className="h-9 w-9 px-0" onClick={() => onEdit(item)} title="配置" type="button" variant="ghost">
-                        <Settings size={16} />
-                      </Button>
-                      <Button
-                        className="h-9 w-9 px-0 hover:bg-rose-50 hover:text-rose-600"
-                        onClick={() => onDelete(item)}
-                        title="删除"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Trash2 size={16} />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+          {items.map((item) => (
+            <div
+              className="group grid grid-cols-[minmax(0,2.3fr)_minmax(0,1fr)_minmax(0,1fr)_96px_280px] items-center gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] transition-colors hover:bg-zinc-50/60"
+              key={item.id}
+            >
+              <AgentNameCell item={item} onOpenDetail={onOpenDetail} />
+              <AgentStatusCell item={item} />
+              <AgentResourcesCell item={item} />
+              <div className="text-xs text-zinc-500">{formatTime(item.updatedAt)}</div>
+              <AgentActionsCell
+                item={item}
+                onChat={onChat}
+                onDelete={onDelete}
+                onEdit={onEdit}
+                onFiles={onFiles}
+                onOpenDetail={onOpenDetail}
+                onTerminal={onTerminal}
+                onToggleState={onToggleState}
+              />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

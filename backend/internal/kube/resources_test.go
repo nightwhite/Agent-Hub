@@ -52,6 +52,15 @@ func TestBuildReturnsKubernetesObjects(t *testing.T) {
 	if got := envValue(objects.Devbox, "API_SERVER_KEY"); got != ag.APIServerKey {
 		t.Fatalf("Build() API_SERVER_KEY = %q, want %q", got, ag.APIServerKey)
 	}
+	if got := envValue(objects.Devbox, "HERMES_INFERENCE_PROVIDER"); got != "custom" {
+		t.Fatalf("Build() HERMES_INFERENCE_PROVIDER = %q, want %q", got, "custom")
+	}
+	if got := envValue(objects.Devbox, "OPENAI_BASE_URL"); got != ag.ModelBaseURL {
+		t.Fatalf("Build() OPENAI_BASE_URL = %q, want %q", got, ag.ModelBaseURL)
+	}
+	if got := envValue(objects.Devbox, "OPENAI_API_KEY"); got != ag.ModelAPIKey {
+		t.Fatalf("Build() OPENAI_API_KEY = %q, want %q", got, ag.ModelAPIKey)
+	}
 	if got := objects.Service.Spec.Selector["agent.sealos.io/name"]; got != ag.Name {
 		t.Fatalf("Build() service selector agent.sealos.io/name = %q, want %q", got, ag.Name)
 	}
@@ -61,6 +70,13 @@ func TestBuildReturnsKubernetesObjects(t *testing.T) {
 	}
 	if got := configLabels["agent.sealos.io/name"]; got != ag.Name {
 		t.Fatalf("Build() config label agent.sealos.io/name = %q, want %q", got, ag.Name)
+	}
+	configUser, found, err := unstructured.NestedString(objects.Devbox.Object, "spec", "config", "user")
+	if err != nil || !found {
+		t.Fatalf("Build() config user missing: found=%v err=%v", found, err)
+	}
+	if configUser != "hermes" {
+		t.Fatalf("Build() config user = %q, want hermes", configUser)
 	}
 }
 

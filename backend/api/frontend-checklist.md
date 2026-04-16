@@ -13,7 +13,7 @@ INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-agent:late
 服务地址：
 
 ```text
-http://127.0.0.1:8080
+http://127.0.0.1:8999
 ```
 
 ## 2. 准备 Authorization
