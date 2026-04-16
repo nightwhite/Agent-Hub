@@ -17,7 +17,27 @@ interface AgentConfigFormProps {
   onSelectPreset: (presetId: AgentBlueprint['profile']) => void
 }
 
-function MetricCard({
+function FormSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
+      <div className="border-b border-zinc-100 pb-4">
+        <div className="text-lg font-medium text-zinc-950">{title}</div>
+        {description ? <p className="mt-1.5 text-sm leading-6 text-zinc-500">{description}</p> : null}
+      </div>
+      <div className="pt-5">{children}</div>
+    </section>
+  )
+}
+
+function RuntimeMetaItem({
   icon,
   label,
   value,
@@ -27,12 +47,12 @@ function MetricCard({
   value: string
 }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3">
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">
-        {icon}
-        {label}
+        <span className="text-zinc-500">{icon}</span>
+        <span>{label}</span>
       </div>
-      <div className="mt-2 text-sm font-medium text-zinc-900">{value}</div>
+      <div className="mt-2 break-all text-sm font-medium text-zinc-900">{value}</div>
     </div>
   )
 }
@@ -55,48 +75,81 @@ export function AgentConfigForm({
   const createModelOptions = resolveCreateModelOptions(templateId)
 
   return (
-    <div className="space-y-4">
-      {mode === 'create' ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          <Input
-            hint="这是用户侧的展示名称；系统会自动生成一个技术实例名用于资源关联和账单查询。"
-            label="别名"
-            onChange={(event) => onChange('aliasName', event.target.value)}
-            placeholder="例如：客服助手"
-            value={blueprint.aliasName}
-          />
-          <Input disabled hint="实例会创建在当前工作区命名空间。" label="命名空间" value={blueprint.namespace} />
+    <div className="flex min-w-[720px] flex-col gap-4">
+      <FormSection
+        description="创建页保持桌面工作台布局，模板信息和运行时默认值在这里固定展示，避免窗口缩小时内容直接塌成单列。"
+        title="运行时模板"
+      >
+        <div className="flex items-start gap-4 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-zinc-200 bg-white">
+            <img alt={`${template.name} logo`} className="h-10 w-10 object-cover" src={template.logo} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3">
+              <div className="text-base font-medium text-zinc-950">{template.name}</div>
+              <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-600">
+                {template.docsLabel}
+              </span>
+            </div>
+            <p className="mt-1.5 text-sm leading-6 text-zinc-500">{template.description}</p>
+          </div>
         </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-3">
-          <Input
-            hint="这是用户侧的展示名称。"
-            label="别名"
-            onChange={(event) => onChange('aliasName', event.target.value)}
-            placeholder="例如：客服助手"
-            value={blueprint.aliasName}
-          />
-          <Input
-            disabled
-            hint="技术实例名由系统生成，用于资源关联和账单查询。"
-            label="实例名称"
-            value={blueprint.appName}
-          />
-          <Input disabled label="命名空间" value={blueprint.namespace} />
-        </div>
-      )}
 
-      <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 px-3 py-3">
-        <div className="mb-3 text-sm font-medium text-zinc-950">资源规格</div>
-        <div className="grid gap-2 lg:grid-cols-4">
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <RuntimeMetaItem icon={<Cpu size={14} />} label="默认镜像" value={template.image} />
+          <RuntimeMetaItem icon={<Database size={14} />} label="默认端口" value={String(template.port)} />
+          <RuntimeMetaItem icon={<HardDrive size={14} />} label="工作目录" value={template.defaultWorkingDirectory} />
+        </div>
+      </FormSection>
+
+      <FormSection
+        description="用户只需要填写别名；系统实例名会自动生成，并继续用于资源关联与账单侧识别。"
+        title="基础配置"
+      >
+        {mode === 'create' ? (
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              hint="这是用户侧的展示名称；系统会自动生成一个技术实例名用于资源关联和账单查询。"
+              label="别名"
+              onChange={(event) => onChange('aliasName', event.target.value)}
+              placeholder="例如：客服助手"
+              value={blueprint.aliasName}
+            />
+            <Input disabled hint="实例会创建在当前工作区命名空间。" label="命名空间" value={blueprint.namespace} />
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            <Input
+              hint="这是用户侧的展示名称。"
+              label="别名"
+              onChange={(event) => onChange('aliasName', event.target.value)}
+              placeholder="例如：客服助手"
+              value={blueprint.aliasName}
+            />
+            <Input
+              disabled
+              hint="技术实例名由系统生成，用于资源关联和账单查询。"
+              label="实例名称"
+              value={blueprint.appName}
+            />
+            <Input disabled label="命名空间" value={blueprint.namespace} />
+          </div>
+        )}
+      </FormSection>
+
+      <FormSection
+        description="资源配置沿用 DevBox 的桌面表单节奏：预设在上，自定义输入在下，默认保持双列或三列，不在普通桌面小窗里直接堆叠成一列。"
+        title="资源规格"
+      >
+        <div className="grid grid-cols-2 gap-3 2xl:grid-cols-4">
           {RESOURCE_PRESETS.map((preset) => {
             const active = blueprint.profile === preset.id
             return (
               <button
-                className={`rounded-xl border px-3 py-3 text-left transition ${
+                className={`rounded-xl border px-4 py-4 text-left transition ${
                   active
-                    ? 'border-zinc-900 bg-white shadow-[inset_0_0_0_1px_rgba(24,24,27,0.08)]'
-                    : 'border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50/70'
+                    ? 'border-zinc-900 bg-zinc-50 shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]'
+                    : 'border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50'
                 }`}
                 key={preset.id}
                 onClick={() => onSelectPreset(preset.id)}
@@ -110,49 +163,42 @@ export function AgentConfigForm({
                     </span>
                   ) : null}
                 </div>
-                <div className="mt-1.5 text-xs leading-5 text-zinc-500">{preset.description}</div>
+                <div className="mt-2 text-xs leading-5 text-zinc-500">{preset.description}</div>
               </button>
             )
           })}
         </div>
-      </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        <MetricCard icon={<Cpu size={14} />} label="默认镜像" value={template.image} />
-        <MetricCard icon={<Database size={14} />} label="默认端口" value={String(template.port)} />
-        <MetricCard icon={<HardDrive size={14} />} label="工作目录" value={template.defaultWorkingDirectory} />
-      </div>
+        <div className="mt-5 grid grid-cols-3 gap-4">
+          <Input
+            disabled={!isCustomPreset}
+            label="CPU"
+            onChange={(event) => onChange('cpu', event.target.value)}
+            placeholder="例如 2000m"
+            value={blueprint.cpu}
+          />
+          <Input
+            disabled={!isCustomPreset}
+            label="内存"
+            onChange={(event) => onChange('memory', event.target.value)}
+            placeholder="例如 4096Mi"
+            value={blueprint.memory}
+          />
+          <Input
+            label="存储"
+            onChange={(event) => onChange('storageLimit', event.target.value)}
+            placeholder="例如 10Gi"
+            value={blueprint.storageLimit}
+          />
+        </div>
+      </FormSection>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <Input
-          disabled={!isCustomPreset}
-          label="CPU"
-          onChange={(event) => onChange('cpu', event.target.value)}
-          placeholder="例如 2000m"
-          value={blueprint.cpu}
-        />
-        <Input
-          disabled={!isCustomPreset}
-          label="内存"
-          onChange={(event) => onChange('memory', event.target.value)}
-          placeholder="例如 4096Mi"
-          value={blueprint.memory}
-        />
-        <Input
-          label="存储"
-          onChange={(event) => onChange('storageLimit', event.target.value)}
-          placeholder="例如 10Gi"
-          value={blueprint.storageLimit}
-        />
-      </div>
-
-      {mode === 'create' ? (
-        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-3">
-          <div className="text-sm font-medium text-zinc-950">模型接入</div>
-          <p className="mt-1.5 text-xs leading-5 text-zinc-500">
-            当前创建流程会通过 AIProxy 自动补齐密钥，再把 OpenAI-compatible 配置写入模板运行时。
-          </p>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <FormSection
+        description="创建阶段直接展示后端确保后的 AIProxy 地址和密钥策略，减少用户在 Agent 启动后再回头补模型配置。"
+        title="模型接入"
+      >
+        {mode === 'create' ? (
+          <div className="grid grid-cols-2 gap-4">
             <Input
               className="font-mono text-xs"
               hint="后端会把这个基址写入模板运行时配置。"
@@ -172,8 +218,8 @@ export function AgentConfigForm({
               }
             />
             <Input
-              hint="当前模板默认走兼容 OpenAI 的自定义 provider。"
-              label="Hermes Provider"
+              hint="当前模板会按 Hermes 运行时约定使用自定义 provider 配置。"
+              label="Provider"
               readOnly
               value={createModeProviderText}
             />
@@ -191,35 +237,37 @@ export function AgentConfigForm({
               ))}
             </Select>
           </div>
-        </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          <Input
-            hint="对应后端 create / patch 请求中的 agent-model-provider。"
-            label="Hermes Provider"
-            onChange={(event) => onChange('modelProvider', event.target.value)}
-            placeholder="例如 custom / anthropic / gemini"
-            value={blueprint.modelProvider}
-          />
-          <Input
-            hint="需要是 http 或 https URL。"
-            label="模型 Base URL"
-            onChange={(event) => onChange('modelBaseURL', event.target.value)}
-            placeholder="例如 https://api.openai.com/v1"
-            value={blueprint.modelBaseURL}
-          />
-        </div>
-      )}
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              hint="对应后端 create / patch 请求中的 agent-model-provider。"
+              label="Provider"
+              onChange={(event) => onChange('modelProvider', event.target.value)}
+              placeholder="例如 custom / anthropic / gemini"
+              value={blueprint.modelProvider}
+            />
+            <Input
+              hint="需要是 http 或 https URL。"
+              label="模型 Base URL"
+              onChange={(event) => onChange('modelBaseURL', event.target.value)}
+              placeholder="例如 https://api.openai.com/v1"
+              value={blueprint.modelBaseURL}
+            />
+          </div>
+        )}
 
-      {mode === 'create' ? null : (
-        <Input
-          hint="例如 gpt-4o-mini。"
-          label="模型名称"
-          onChange={(event) => onChange('model', event.target.value)}
-          placeholder="例如 gpt-4o-mini"
-          value={blueprint.model}
-        />
-      )}
+        {mode === 'create' ? null : (
+          <div className="mt-4">
+            <Input
+              hint="例如 gpt-4o-mini。"
+              label="模型名称"
+              onChange={(event) => onChange('model', event.target.value)}
+              placeholder="例如 gpt-4o-mini"
+              value={blueprint.model}
+            />
+          </div>
+        )}
+      </FormSection>
     </div>
   )
 }

@@ -201,17 +201,6 @@ export interface ChatSessionState {
   messages: ChatMessage[]
 }
 
-export interface AgentTerminalDescriptor {
-  terminalName: string
-  iframeUrl: string
-  namespace: string
-  podName: string
-  containerName: string
-  command: string
-  keepaliveSeconds: number
-  availableReplicas: number
-}
-
 export interface TerminalSessionState {
   resource: AgentListItem
   status: 'initializing' | 'connecting' | 'reconnecting' | 'connected' | 'disconnected' | 'error'
@@ -219,11 +208,6 @@ export interface TerminalSessionState {
   podName: string
   containerName: string
   namespace: string
-  terminalName: string
-  iframeUrl: string
-  command: string
-  keepaliveSeconds: number
-  availableReplicas: number
   wsUrl: string
   terminalId: string
   cwd: string

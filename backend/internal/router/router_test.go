@@ -459,23 +459,6 @@ func TestWebSocketEndpointRequiresWebSocketUpgrade(t *testing.T) {
 	}
 }
 
-func TestCreateAgentTerminalSessionRequiresAuthorization(t *testing.T) {
-	t.Parallel()
-
-	recorder := performRequest(t, http.MethodPost, "/api/v1/agents/demo-agent/terminal/session", "", "", nil)
-	if recorder.Code != http.StatusUnauthorized {
-		t.Fatalf("POST /api/v1/agents/:agentName/terminal/session without Authorization status = %d, want %d", recorder.Code, http.StatusUnauthorized)
-	}
-
-	body := decodeEnvelope(t, recorder)
-	if body.Code != 40010 {
-		t.Fatalf("POST /api/v1/agents/:agentName/terminal/session without Authorization code = %d, want 40010", body.Code)
-	}
-	if body.Error == nil || body.Error.Type != "missing_authorization" {
-		t.Fatalf("POST /api/v1/agents/:agentName/terminal/session without Authorization error = %#v, want missing_authorization", body.Error)
-	}
-}
-
 func performRequest(t *testing.T, method, target, body, rawQuery string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 

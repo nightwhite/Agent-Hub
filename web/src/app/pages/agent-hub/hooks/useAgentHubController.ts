@@ -32,6 +32,7 @@ import { getSealosSession } from '../../../../sealosSdk'
 
 const WORKSPACE_AIPROXY_TOKEN_NAME = 'Agent-Hub'
 const INITIAL_LOAD_CACHE_TTL_MS = 2000
+const WORKSPACE_TOKEN_RETRY_COOLDOWN_MS = 30_000
 
 type InitialLoadSnapshot = {
   clusterContext: ClusterContext
@@ -44,6 +45,9 @@ let initialLoadCache: InitialLoadSnapshot | null = null
 let initialLoadCacheAt = 0
 let clusterContextCache: ClusterContext | null = null
 let clusterContextPromise: Promise<ClusterContext> | null = null
+let workspaceTokenCache: WorkspaceAIProxyToken | null = null
+let workspaceTokenPromise: Promise<WorkspaceAIProxyToken | null> | null = null
+let workspaceTokenFailureAt = 0
 
 const toWorkspaceAIProxyToken = (payload: any): WorkspaceAIProxyToken | null => {
   if (!payload?.token) {
@@ -130,11 +134,12 @@ const fetchInitialLoadSnapshot = async (): Promise<InitialLoadSnapshot> => {
       getClusterInfo(nextClusterContext),
       listAgents(nextClusterContext),
     ])
+    const mappedItems = mapBackendAgentsToListItems(response?.items || [], nextClusterInfo)
 
     return applyInitialLoadCache({
       clusterContext: nextClusterContext,
       clusterInfo: nextClusterInfo,
-      items: mapBackendAgentsToListItems(response?.items || [], nextClusterInfo),
+      items: mappedItems,
     })
   })().finally(() => {
     initialLoadPromise = null
@@ -166,22 +171,50 @@ export function useAgentHubController() {
 
   const hydrateWorkspaceToken = useCallback(
     async (context: ClusterContext) => {
-      if (workspaceAIProxyToken?.key) {
-        return workspaceAIProxyToken
+      if (workspaceAIProxyToken?.key) return workspaceAIProxyToken
+      if (workspaceTokenCache?.key) {
+        setWorkspaceAIProxyToken(workspaceTokenCache)
+        return workspaceTokenCache
+      }
+
+      if (workspaceTokenPromise) {
+        const token = await workspaceTokenPromise
+        if (token?.key) {
+          setWorkspaceAIProxyToken(token)
+        }
+        return token
+      }
+
+      if (workspaceTokenFailureAt && Date.now() - workspaceTokenFailureAt < WORKSPACE_TOKEN_RETRY_COOLDOWN_MS) {
+        return null
       }
 
       try {
-        const ensuredToken = toWorkspaceAIProxyToken(
-          await ensureAIProxyToken(context, { name: WORKSPACE_AIPROXY_TOKEN_NAME }),
-        )
+        workspaceTokenPromise = ensureAIProxyToken(context, { name: WORKSPACE_AIPROXY_TOKEN_NAME })
+          .then((payload) => toWorkspaceAIProxyToken(payload))
+          .then((ensuredToken) => {
+            if (ensuredToken?.key) {
+              workspaceTokenCache = ensuredToken
+            }
+            return ensuredToken
+          })
+          .catch((error) => {
+            workspaceTokenFailureAt = Date.now()
+            console.warn('[aiproxy] ensure workspace token failed', {
+              message: error instanceof Error ? error.message : String(error || ''),
+            })
+            return null
+          })
+          .finally(() => {
+            workspaceTokenPromise = null
+          })
+
+        const ensuredToken = await workspaceTokenPromise
         if (ensuredToken?.key) {
           setWorkspaceAIProxyToken(ensuredToken)
         }
         return ensuredToken
       } catch (error) {
-        console.warn('[aiproxy] ensure workspace token failed', {
-          message: error instanceof Error ? error.message : String(error || ''),
-        })
         return null
       }
     },
@@ -232,14 +265,15 @@ export function useAgentHubController() {
           getClusterInfo(nextClusterContext),
           listAgents(nextClusterContext),
         ])
+        const mappedItems = mapBackendAgentsToListItems(response?.items || [], nextClusterInfo)
 
         setClusterContext(nextClusterContext)
         setClusterInfo(nextClusterInfo)
-        setItems(mapBackendAgentsToListItems(response?.items || [], nextClusterInfo))
+        setItems(mappedItems)
         applyInitialLoadCache({
           clusterContext: nextClusterContext,
           clusterInfo: nextClusterInfo,
-          items: mapBackendAgentsToListItems(response?.items || [], nextClusterInfo),
+          items: mappedItems,
         })
 
         setMessage('')
@@ -260,18 +294,26 @@ export function useAgentHubController() {
     async ({ ensureWorkspaceToken = false }: { ensureWorkspaceToken?: boolean } = {}) => {
       try {
         const nextClusterContext = await resolveClusterContext()
-        const [nextClusterInfo, response] = await Promise.all([
-          getClusterInfo(nextClusterContext),
-          listAgents(nextClusterContext),
-        ])
+        const nextClusterInfo = clusterInfo || (await getClusterInfo(nextClusterContext))
+        const response = await listAgents(nextClusterContext)
+        const mappedItems = mapBackendAgentsToListItems(response?.items || [], nextClusterInfo)
 
         setClusterContext(nextClusterContext)
         setClusterInfo(nextClusterInfo)
-        setItems(mapBackendAgentsToListItems(response?.items || [], nextClusterInfo))
+        setItems((prev) => {
+          if (prev.length === mappedItems.length) {
+            const prevSig = prev.map((it) => `${it.id}:${it.status}:${it.ready}:${it.updatedAt}:${it.bootstrapPhase}:${it.bootstrapMessage}`).join('|')
+            const nextSig = mappedItems.map((it) => `${it.id}:${it.status}:${it.ready}:${it.updatedAt}:${it.bootstrapPhase}:${it.bootstrapMessage}`).join('|')
+            if (prevSig === nextSig) {
+              return prev
+            }
+          }
+          return mappedItems
+        })
         applyInitialLoadCache({
           clusterContext: nextClusterContext,
           clusterInfo: nextClusterInfo,
-          items: mapBackendAgentsToListItems(response?.items || [], nextClusterInfo),
+          items: mappedItems,
         })
 
         if (ensureWorkspaceToken) {
@@ -281,7 +323,7 @@ export function useAgentHubController() {
         console.warn('[agent-hub] silent refresh failed', error)
       }
     },
-    [hydrateWorkspaceToken, resolveClusterContext],
+    [clusterInfo, hydrateWorkspaceToken, resolveClusterContext],
   )
 
   useEffect(() => {
@@ -315,7 +357,7 @@ export function useAgentHubController() {
   }, [hydrateWorkspaceToken])
 
   useEffect(() => {
-    const hasPendingItems = items.some((item) => item.status === 'creating')
+    const hasPendingItems = items.some((item) => item.status === 'creating' || (item.status === 'running' && !item.ready))
 
     if (!hasPendingItems) {
       if (refreshTimerRef.current) {
@@ -328,7 +370,7 @@ export function useAgentHubController() {
     if (!refreshTimerRef.current) {
       refreshTimerRef.current = window.setInterval(() => {
         void loadItemsSilently()
-      }, 5000)
+      }, 3000)
     }
 
     return () => {

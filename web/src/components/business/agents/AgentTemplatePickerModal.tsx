@@ -34,7 +34,7 @@ export function AgentTemplatePickerModal({
       title="选择 Agent 模板"
       widthClassName="max-w-4xl"
     >
-      <AgentTemplatePickerPanel onSelect={onSelect} selectedTemplateId={selectedTemplateId} />
+      <AgentTemplatePickerPanel onSelect={onSelect} />
     </Modal>
   )
 }

@@ -20,24 +20,26 @@ export function AgentPageHeader({
   actions,
 }: AgentPageHeaderProps) {
   return (
-    <header className="flex min-h-16 w-full flex-shrink-0 items-center justify-between gap-4 border-b border-zinc-200 py-2">
-      <div className="min-w-0">
+    <header className="flex min-h-20 w-full flex-shrink-0 items-center justify-between gap-5 border-b border-zinc-200 py-3">
+      <div className="flex min-w-0 items-center gap-3">
         <Link
-          className="inline-flex items-center gap-2 text-xs font-medium text-zinc-500 transition hover:text-zinc-900"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+          title={backLabel}
           to={backTo}
         >
-          <ArrowLeft size={14} />
-          {backLabel}
+          <ArrowLeft size={22} />
         </Link>
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <h1 className="text-lg font-semibold text-zinc-950">{title}</h1>
-          {badge}
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-3">
+            <h1 className="truncate text-xl font-semibold tracking-[-0.02em] text-zinc-950">{title}</h1>
+            {badge}
+          </div>
+          {description ? (
+            <p className="mt-1 max-w-3xl text-xs text-zinc-500">{description}</p>
+          ) : null}
         </div>
-        {description ? (
-          <p className="mt-1 max-w-3xl text-xs text-zinc-500">{description}</p>
-        ) : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 items-center justify-end gap-3">{actions}</div> : null}
     </header>
   )
 }

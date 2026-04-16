@@ -1,19 +1,19 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AgentConfigForm } from '../../../components/business/agents/AgentConfigForm'
-import { AgentTemplatePickerPanel } from '../../../components/business/agents/AgentTemplatePickerPanel'
 import { Button } from '../../../components/ui/Button'
 import { AgentCreateSidebar } from './components/AgentCreateSidebar'
-import { AgentPageHeader } from './components/AgentPageHeader'
+import { AgentCreateHeader } from './components/AgentCreateHeader'
 import { AgentHubOverview } from './components/AgentHubOverview'
 import { AgentWorkspaceShell } from './components/AgentWorkspaceShell'
 import { useAgentHubController } from './hooks/useAgentHubController'
 import { applyBlueprintPreset, updateBlueprintField } from './lib/blueprint'
-import { DEFAULT_TEMPLATE_ID, EMPTY_BLUEPRINT } from '../../../domains/agents/templates'
+import { EMPTY_BLUEPRINT, isAgentTemplateId, resolveTemplateById } from '../../../domains/agents/templates'
 import type { AgentBlueprint, AgentTemplateId } from '../../../domains/agents/types'
 
 export function AgentCreatePage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const controller = useAgentHubController()
   const {
     clusterContext,
@@ -26,11 +26,24 @@ export function AgentCreatePage() {
     createAgentFromBlueprint,
     setMessage,
   } = controller
-  const [selectedTemplateId, setSelectedTemplateId] = useState<AgentTemplateId>(DEFAULT_TEMPLATE_ID)
   const [blueprint, setBlueprint] = useState<AgentBlueprint>({ ...EMPTY_BLUEPRINT })
   const [preparing, setPreparing] = useState(true)
+  const selectedTemplateId = useMemo<AgentTemplateId | null>(() => {
+    const template = searchParams.get('template') || ''
+    return isAgentTemplateId(template) ? template : null
+  }, [searchParams])
+
+  const selectedTemplate = selectedTemplateId ? resolveTemplateById(selectedTemplateId) : null
 
   useEffect(() => {
+    if (!selectedTemplateId) {
+      navigate('/agents/templates', { replace: true })
+    }
+  }, [navigate, selectedTemplateId])
+
+  useEffect(() => {
+    if (!selectedTemplateId) return
+
     if (!clusterContext) {
       if (!loading) {
         setPreparing(false)
@@ -79,69 +92,61 @@ export function AgentCreatePage() {
 
   return (
     <AgentWorkspaceShell>
-      <AgentPageHeader
-        backLabel="返回 Agent 列表"
-        backTo="/agents"
-        title="创建 Agent"
-      />
+      <div className="flex h-full min-w-[1024px] flex-col items-center">
+        <AgentCreateHeader
+          description={
+            selectedTemplate
+              ? `按 ${selectedTemplate.name} 模板创建 Agent 实例，并在部署时自动接入工作区 AIProxy。`
+              : undefined
+          }
+          onBack={() => navigate('/agents/templates')}
+          title={selectedTemplate ? `创建 ${selectedTemplate.shortName}` : '创建 Agent'}
+          actions={(
+            <>
+              <Button onClick={() => navigate('/agents/templates')} variant="secondary">
+                更换模板
+              </Button>
+              <Button onClick={() => navigate('/agents')} variant="secondary">
+                取消
+              </Button>
+              <Button disabled={submitting || preparing} onClick={handleSubmit}>
+                {submitting ? '部署中...' : '确认部署'}
+              </Button>
+            </>
+          )}
+        />
 
-      <main className="flex min-h-0 flex-1 flex-col gap-3 py-3">
-        <AgentHubOverview message={message} />
+        <main className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-hidden px-10 pt-6">
+          <AgentHubOverview message={message} />
 
-        <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[220px_minmax(0,1fr)]">
-          <AgentCreateSidebar
-            blueprint={blueprint}
-            templateId={selectedTemplateId}
-          />
+          <div className="min-h-0 flex-1 overflow-y-auto pb-6">
+            <div className="flex min-h-full w-full min-w-[1040px] items-start gap-6">
+              {selectedTemplateId ? (
+                <AgentCreateSidebar blueprint={blueprint} templateId={selectedTemplateId} />
+              ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <section className="rounded-xl border border-zinc-200 bg-white p-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
-              <div className="text-sm font-medium text-zinc-950">选择模板</div>
-              <div className="mt-3">
-                <AgentTemplatePickerPanel
-                  onSelect={setSelectedTemplateId}
-                  selectedTemplateId={selectedTemplateId}
-                />
-              </div>
-            </section>
-
-            <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 pb-3">
-                <div>
-                  <div className="text-sm font-medium text-zinc-950">配置实例</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button onClick={() => navigate('/agents')} variant="secondary">
-                    取消
-                  </Button>
-                  <Button disabled={submitting || preparing} onClick={handleSubmit}>
-                    {submitting ? '部署中...' : '确认部署'}
-                  </Button>
-                </div>
-              </div>
-
-              {loading || preparing ? (
-                <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 px-6 py-10 text-center text-sm text-zinc-500">
-                  正在准备创建配置...
-                </div>
-              ) : (
-                <div className="mt-4">
+              <section className="min-w-[720px] flex-1">
+                {loading || preparing ? (
+                  <div className="flex min-h-[560px] items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-10 text-center text-sm text-zinc-500 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
+                    正在准备创建配置...
+                  </div>
+                ) : (
                   <AgentConfigForm
                     blueprint={blueprint}
                     mode="create"
                     onChange={handleBlueprintChange}
                     onSelectPreset={handleSelectPreset}
-                    templateId={selectedTemplateId}
+                    templateId={selectedTemplateId || 'hermes-agent'}
                     workspaceModelBaseURL={workspaceAIProxyModelBaseURL}
                     workspaceModelKey={workspaceAIProxyToken?.key || ''}
                     workspaceModelKeyReady={Boolean(workspaceAIProxyToken?.key)}
                   />
-                </div>
-              )}
-            </section>
+                )}
+              </section>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </AgentWorkspaceShell>
   )
 }

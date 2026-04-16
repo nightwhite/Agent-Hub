@@ -14,7 +14,9 @@ export function AgentWorkspaceShell({
     <div className="bg-[var(--color-bg)] text-[var(--color-text)]">
       <div
         className={cn(
-          'mx-auto flex h-[calc(100vh-28px)] max-w-[1280px] flex-col px-4',
+          // DevBox style: each page owns its own padding + min-width strategy.
+          // The shell only defines the desktop workbench viewport and horizontal scroll.
+          'flex h-[calc(100vh-28px)] min-w-0 flex-col overflow-x-auto overflow-y-hidden',
           className,
         )}
       >

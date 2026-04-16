@@ -87,6 +87,9 @@ export const AGENT_TEMPLATE_LIST = Object.values(AGENT_TEMPLATES)
 
 export const DEFAULT_TEMPLATE_ID: AgentTemplateId = 'hermes-agent'
 
+export const isAgentTemplateId = (value: string): value is AgentTemplateId =>
+  value in AGENT_TEMPLATES
+
 export const DEFAULT_FILE_DIRECTORY = '/opt/hermes'
 
 export const EMPTY_BLUEPRINT: AgentBlueprint = {

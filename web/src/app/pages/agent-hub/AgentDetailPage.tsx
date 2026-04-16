@@ -1,4 +1,3 @@
-import { Bot, FolderOpen, PauseCircle, PlayCircle, Settings, Terminal, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AgentConfigModal } from '../../../components/business/agents/AgentConfigModal'
@@ -6,11 +5,10 @@ import { DeleteAgentModal } from '../../../components/business/agents/DeleteAgen
 import { AgentChatWorkspace } from '../../../components/business/chat/AgentChatWorkspace'
 import { AgentFilesWorkspace } from '../../../components/business/files/AgentFilesWorkspace'
 import { AgentTerminalWorkspace } from '../../../components/business/terminal/AgentTerminalWorkspace'
-import { Button } from '../../../components/ui/Button'
-import { StatusBadge } from '../../../components/ui/StatusBadge'
 import { createBlueprintFromAgentItem } from '../../../domains/agents/mappers'
 import { DEFAULT_TEMPLATE_ID, EMPTY_BLUEPRINT } from '../../../domains/agents/templates'
 import type { AgentBlueprint, AgentListItem } from '../../../domains/agents/types'
+import { AgentDetailHeader } from './components/AgentDetailHeader'
 import { AgentDetailOverview } from './components/AgentDetailOverview'
 import { AgentDetailSidebar, type AgentDetailTab } from './components/AgentDetailSidebar'
 import { AgentPageHeader } from './components/AgentPageHeader'
@@ -239,8 +237,10 @@ export function AgentDetailPage() {
   if (controller.loading && !item) {
     return (
       <AgentWorkspaceShell>
-        <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-          正在加载 Agent 详情...
+        <div className="flex h-full min-w-[1200px] flex-col px-6">
+          <div className="flex min-h-20 w-full items-center text-sm text-zinc-500">
+            正在加载 Agent 详情...
+          </div>
         </div>
       </AgentWorkspaceShell>
     )
@@ -249,101 +249,69 @@ export function AgentDetailPage() {
   if (!item) {
     return (
       <AgentWorkspaceShell>
-        <AgentPageHeader
-          backLabel="返回 Agent 列表"
-          backTo="/agents"
-          title="实例不存在"
-        />
-        <main className="flex min-h-0 flex-1 flex-col gap-3 py-3">
-          <AgentHubOverview message={controller.message} />
-          <div className="flex h-full min-h-[320px] flex-1 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-16 text-center text-sm text-zinc-500 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
-            当前没有找到名为 <span className="font-medium text-zinc-950">{agentName}</span> 的 Agent。
-          </div>
-        </main>
+        <div className="flex h-full min-w-[1200px] flex-col px-6">
+          <AgentPageHeader
+            backLabel="返回 Agent 列表"
+            backTo="/agents"
+            title="实例不存在"
+          />
+          <main className="flex min-h-0 flex-1 flex-col gap-3 pb-6">
+            <AgentHubOverview message={controller.message} />
+            <div className="flex h-full min-h-[320px] flex-1 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-16 text-center text-sm text-zinc-500 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
+              当前没有找到名为 <span className="font-medium text-zinc-950">{agentName}</span> 的 Agent。
+            </div>
+          </main>
+        </div>
       </AgentWorkspaceShell>
     )
   }
 
   return (
     <AgentWorkspaceShell>
-      <AgentPageHeader
-        actions={
-          <>
-            <Button
-              className="h-9 px-2.5"
-              disabled={!item.chatAvailable}
-              onClick={() => setCurrentTab('chat')}
-              type="button"
-              variant="secondary"
-            >
-              <Bot size={16} />
-              对话
-            </Button>
-            <Button
-              className="h-9 px-2.5"
-              disabled={!item.terminalAvailable}
-              onClick={() => void handleOpenTerminalWindow()}
-              type="button"
-              variant="secondary"
-            >
-              <Terminal size={16} />
-              终端
-            </Button>
-            <Button className="h-9 px-2.5" onClick={() => setCurrentTab('files')} type="button" variant="secondary">
-              <FolderOpen size={16} />
-              文件
-            </Button>
-            <Button className="h-9 px-2.5" onClick={handleToggleState} type="button" variant="secondary">
-              {item.status === 'running' ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
-              {item.status === 'running' ? '暂停' : '启动'}
-            </Button>
-            <Button className="h-9 px-2.5" onClick={() => openEditFlow(item)} type="button" variant="secondary">
-              <Settings size={16} />
-              配置
-            </Button>
-            <Button className="h-9 px-2.5" onClick={() => setDeleteTarget(item)} type="button" variant="danger">
-              <Trash2 size={16} />
-              删除
-            </Button>
-          </>
-        }
-        backLabel="返回 Agent 列表"
-        backTo="/agents"
-        badge={<StatusBadge status={item.status} />}
-        title={item.aliasName || item.name}
-      />
+      <div className="flex h-full min-w-[1200px] flex-col px-6">
+        <AgentDetailHeader
+          item={item}
+          onBack={() => navigate('/agents')}
+          onDelete={() => setDeleteTarget(item)}
+          onOpenChat={() => setCurrentTab('chat')}
+          onOpenConfig={() => openEditFlow(item)}
+          onOpenFiles={() => setCurrentTab('files')}
+          onOpenTerminalWindow={() => void handleOpenTerminalWindow()}
+          onToggleState={handleToggleState}
+        />
 
-      <main className="flex min-h-0 flex-1 flex-col gap-3 py-3">
-        <AgentHubOverview message={controller.message} />
+        <main className="flex min-h-0 flex-1 flex-col gap-2 pb-6">
+          <AgentHubOverview message={controller.message} />
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 lg:flex-row">
-          <AgentDetailSidebar currentTab={currentTab} onTabChange={setCurrentTab} />
-          <div className="min-w-0 flex-1">{renderTabContent()}</div>
-        </div>
-      </main>
+          <div className="flex min-h-0 flex-1 gap-2">
+            <AgentDetailSidebar currentTab={currentTab} onTabChange={setCurrentTab} />
+            <div className="min-w-0 flex-1">{renderTabContent()}</div>
+          </div>
+        </main>
 
-      <AgentConfigModal
-        blueprint={editBlueprint}
-        mode="edit"
-        onChange={handleBlueprintChange}
-        onClose={closeEditFlow}
-        onSelectPreset={handleSelectPreset}
-        onSubmit={handleSubmitEdit}
-        open={Boolean(editingItem)}
-        submitting={controller.submitting}
-        templateId={editingItem?.templateId || DEFAULT_TEMPLATE_ID}
-        workspaceModelBaseURL={controller.workspaceAIProxyModelBaseURL}
-        workspaceModelKey={controller.workspaceAIProxyToken?.key || ''}
-        workspaceModelKeyReady={Boolean(controller.workspaceAIProxyToken?.key)}
-      />
+        <AgentConfigModal
+          blueprint={editBlueprint}
+          mode="edit"
+          onChange={handleBlueprintChange}
+          onClose={closeEditFlow}
+          onSelectPreset={handleSelectPreset}
+          onSubmit={handleSubmitEdit}
+          open={Boolean(editingItem)}
+          submitting={controller.submitting}
+          templateId={editingItem?.templateId || DEFAULT_TEMPLATE_ID}
+          workspaceModelBaseURL={controller.workspaceAIProxyModelBaseURL}
+          workspaceModelKey={controller.workspaceAIProxyToken?.key || ''}
+          workspaceModelKeyReady={Boolean(controller.workspaceAIProxyToken?.key)}
+        />
 
-      <DeleteAgentModal
-        item={deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        open={Boolean(deleteTarget)}
-        submitting={controller.deleting}
-      />
+        <DeleteAgentModal
+          item={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleDelete}
+          open={Boolean(deleteTarget)}
+          submitting={controller.deleting}
+        />
+      </div>
     </AgentWorkspaceShell>
   )
 }
