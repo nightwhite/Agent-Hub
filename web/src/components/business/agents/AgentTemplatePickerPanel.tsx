@@ -75,7 +75,7 @@ export function AgentTemplatePickerPanel({
   templates = AGENT_TEMPLATE_LIST,
 }: AgentTemplatePickerPanelProps) {
   return (
-    <div className="flex flex-wrap items-stretch gap-4">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(clamp(200px,300px,440px),1fr))] gap-3">
       {templates.map((template) => (
         <TemplateCard
           key={template.id}
