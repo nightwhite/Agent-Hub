@@ -116,34 +116,32 @@ export function AgentCreatePage() {
           )}
         />
 
-        <main className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-hidden px-10 pt-6">
+        <main className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-y-auto px-5 pt-10 pb-16 md:px-10 lg:px-20">
           <AgentHubOverview message={message} />
 
-          <div className="min-h-0 flex-1 overflow-y-auto pb-6">
-            <div className="flex min-h-full w-full min-w-[1040px] items-start gap-6">
-              {selectedTemplateId ? (
-                <AgentCreateSidebar blueprint={blueprint} templateId={selectedTemplateId} />
-              ) : null}
+          <div className="flex w-full justify-center gap-6">
+            {selectedTemplateId ? (
+              <AgentCreateSidebar blueprint={blueprint} templateId={selectedTemplateId} />
+            ) : null}
 
-              <section className="min-w-[720px] flex-1">
-                {loading || preparing ? (
-                  <div className="flex min-h-[560px] items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-10 text-center text-sm text-zinc-500 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
-                    正在准备创建配置...
-                  </div>
-                ) : (
-                  <AgentConfigForm
-                    blueprint={blueprint}
-                    mode="create"
-                    onChange={handleBlueprintChange}
-                    onSelectPreset={handleSelectPreset}
-                    templateId={selectedTemplateId || 'hermes-agent'}
-                    workspaceModelBaseURL={workspaceAIProxyModelBaseURL}
-                    workspaceModelKey={workspaceAIProxyToken?.key || ''}
-                    workspaceModelKeyReady={Boolean(workspaceAIProxyToken?.key)}
-                  />
-                )}
-              </section>
-            </div>
+            <section className="min-w-[700px] flex-1">
+              {loading || preparing ? (
+                <div className="flex min-h-[560px] items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-10 text-center text-sm text-zinc-500 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
+                  正在准备创建配置...
+                </div>
+              ) : (
+                <AgentConfigForm
+                  blueprint={blueprint}
+                  mode="create"
+                  onChange={handleBlueprintChange}
+                  onSelectPreset={handleSelectPreset}
+                  templateId={selectedTemplateId || 'hermes-agent'}
+                  workspaceModelBaseURL={workspaceAIProxyModelBaseURL}
+                  workspaceModelKey={workspaceAIProxyToken?.key || ''}
+                  workspaceModelKeyReady={Boolean(workspaceAIProxyToken?.key)}
+                />
+              )}
+            </section>
           </div>
         </main>
       </div>

@@ -75,7 +75,7 @@ export function AgentConfigForm({
   const createModelOptions = resolveCreateModelOptions(templateId)
 
   return (
-    <div className="flex min-w-[720px] flex-col gap-4">
+    <div className="flex min-w-[700px] flex-col gap-4">
       <FormSection
         description="创建页保持桌面工作台布局，模板信息和运行时默认值在这里固定展示，避免窗口缩小时内容直接塌成单列。"
         title="运行时模板"

@@ -58,7 +58,7 @@ export function AgentCreateSidebar({
   const template = resolveTemplateById(templateId)
 
   return (
-    <aside className="sticky top-0 flex w-[280px] shrink-0 flex-col gap-4">
+    <aside className="flex w-[260px] shrink-0 flex-col gap-4">
       <SidebarSection title="已选模板">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
