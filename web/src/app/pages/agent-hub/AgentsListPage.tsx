@@ -149,7 +149,7 @@ export function AgentsListPage() {
 
   return (
     <AgentWorkspaceShell>
-      <div className="flex h-full flex-col px-12">
+      <div className="flex h-full min-w-[1024px] flex-col px-12">
         <AgentHubHeader
           keyword={keyword}
           namespace={controller.clusterInfo?.namespace}
