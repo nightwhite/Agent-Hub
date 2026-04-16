@@ -188,16 +188,16 @@ export function AgentConfigForm({
       return (
         <div className="flex flex-col rounded-2xl border border-zinc-200 bg-white p-8">
           <span className="text-lg/7 font-medium text-zinc-950">模型接入</span>
-          <div className="mt-6 flex items-start gap-4">
+          <div className="mt-6 flex flex-col gap-4">
             <Input
-              className="w-[520px] font-mono text-xs"
+              className="w-full font-mono text-xs"
               hint="后端会把这个基址写入模板运行时配置。"
               label="AIProxy 推理地址"
               readOnly
               value={resolvedModelBaseURL}
             />
             <Input
-              className="w-[520px] font-mono text-xs"
+              className="w-full font-mono text-xs"
               hint="页面侧只做展示，实际创建时由后端确保并注入。"
               label="AIProxy 密钥"
               readOnly
