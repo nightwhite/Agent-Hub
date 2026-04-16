@@ -124,7 +124,7 @@ export function AgentCreatePage() {
               <AgentCreateSidebar blueprint={blueprint} templateId={selectedTemplateId} />
             ) : null}
 
-            <section className="min-w-[700px] flex-1">
+            <section className="min-w-[700px]">
               {loading || preparing ? (
                 <div className="flex min-h-[560px] items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-10 text-center text-sm text-zinc-500 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
                   正在准备创建配置...
