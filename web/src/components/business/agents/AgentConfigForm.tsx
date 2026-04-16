@@ -52,7 +52,9 @@ function RuntimeMetaItem({
         <span className="text-zinc-500">{icon}</span>
         <span>{label}</span>
       </div>
-      <div className="mt-2 break-all text-sm font-medium text-zinc-900">{value}</div>
+      <div className="mt-2 truncate font-mono text-xs font-medium text-zinc-700" title={value}>
+        {value}
+      </div>
     </div>
   )
 }
@@ -95,8 +97,10 @@ export function AgentConfigForm({
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          <RuntimeMetaItem icon={<Cpu size={14} />} label="默认镜像" value={template.image} />
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <RuntimeMetaItem icon={<Cpu size={14} />} label="默认镜像" value={template.image} />
+          </div>
           <RuntimeMetaItem icon={<Database size={14} />} label="默认端口" value={String(template.port)} />
           <RuntimeMetaItem icon={<HardDrive size={14} />} label="工作目录" value={template.defaultWorkingDirectory} />
         </div>
