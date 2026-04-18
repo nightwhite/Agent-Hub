@@ -504,12 +504,12 @@ func deleteManagedAgentResources(
 	agentName string,
 ) error {
 	selector := kube.ManagedSelector(agentName)
-	warnings := []string{}
+	softFailures := []string{}
 	devboxMissing := false
 
 	ingressList, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("list ingresses: %v", err))
+		softFailures = append(softFailures, fmt.Sprintf("list ingresses: %v", err))
 	} else {
 		for i := range ingressList.Items {
 			ingress := ingressList.Items[i]
@@ -517,14 +517,14 @@ func deleteManagedAgentResources(
 				continue
 			}
 			if err := clientset.NetworkingV1().Ingresses(namespace).Delete(ctx, ingress.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-				warnings = append(warnings, fmt.Sprintf("delete ingress %s: %v", ingress.Name, err))
+				softFailures = append(softFailures, fmt.Sprintf("delete ingress %s: %v", ingress.Name, err))
 			}
 		}
 	}
 
 	serviceList, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("list services: %v", err))
+		softFailures = append(softFailures, fmt.Sprintf("list services: %v", err))
 	} else {
 		for i := range serviceList.Items {
 			service := serviceList.Items[i]
@@ -532,7 +532,7 @@ func deleteManagedAgentResources(
 				continue
 			}
 			if err := clientset.CoreV1().Services(namespace).Delete(ctx, service.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-				warnings = append(warnings, fmt.Sprintf("delete service %s: %v", service.Name, err))
+				softFailures = append(softFailures, fmt.Sprintf("delete service %s: %v", service.Name, err))
 			}
 		}
 	}
@@ -551,8 +551,11 @@ func deleteManagedAgentResources(
 		return fmt.Errorf("get devbox %s: %v", agentName, err)
 	}
 
-	if len(warnings) > 0 {
-		log.Printf("best-effort cleanup warnings for %s/%s (devboxMissing=%t): %s", namespace, agentName, devboxMissing, strings.Join(warnings, "; "))
+	if len(softFailures) > 0 {
+		log.Printf("managed resource cleanup soft-failures for %s/%s (devboxMissing=%t): %s", namespace, agentName, devboxMissing, strings.Join(softFailures, "; "))
+		if devboxMissing {
+			return fmt.Errorf("managed resources cleanup failed while devbox missing: %s", strings.Join(softFailures, "; "))
+		}
 	}
 
 	return nil

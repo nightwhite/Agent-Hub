@@ -3,11 +3,14 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"time"
 
 	"github.com/nightwhite/Agent-Hub/internal/kube"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/remotecommand"
 )
@@ -89,7 +92,26 @@ func isRetryableAgentExecError(err error) bool {
 	if err == nil {
 		return false
 	}
-
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if apierrors.IsNotFound(err) {
+		return true
+	}
+	if apierrors.IsTooManyRequests(err) || apierrors.IsServiceUnavailable(err) || apierrors.IsTimeout(err) {
+		return true
+	}
+	var statusErr *apierrors.StatusError
+	if errors.As(err, &statusErr) {
+		reason := statusErr.Status().Reason
+		switch reason {
+		case metav1.StatusReasonTimeout, metav1.StatusReasonServerTimeout, metav1.StatusReasonTooManyRequests, metav1.StatusReasonServiceUnavailable:
+			return true
+		}
+	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
 	case strings.Contains(message, "agent pod not found"):

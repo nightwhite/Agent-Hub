@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -30,6 +31,14 @@ func TestIsRetryableAgentExecError(t *testing.T) {
 		},
 		"validation error is not retryable": {
 			err:  errors.New("exec: permission denied"),
+			want: false,
+		},
+		"context deadline is retryable": {
+			err:  context.DeadlineExceeded,
+			want: true,
+		},
+		"context canceled is not retryable": {
+			err:  context.Canceled,
 			want: false,
 		},
 		"nil is not retryable": {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/nightwhite/Agent-Hub/internal/kube"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	ktesting "k8s.io/client-go/testing"
 )
 
 func TestDeleteManagedAgentResourcesSucceedsWhenServiceAndIngressAreMissing(t *testing.T) {
@@ -116,6 +118,44 @@ func TestDeleteManagedAgentResourcesSucceedsWhenDevboxIsAlreadyMissing(t *testin
 
 	if _, err := clientset.NetworkingV1().Ingresses(namespace).Get(context.Background(), "ing-hermes-orphan", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("ingress get error = %v, want not found", err)
+	}
+}
+
+func TestDeleteManagedAgentResourcesReturnsErrorWhenDevboxMissingAndServiceDeleteFails(t *testing.T) {
+	t.Parallel()
+
+	const namespace = "ns-test"
+	const agentName = "hermes"
+
+	repo := kube.NewRepository(
+		dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+			runtime.NewScheme(),
+			map[schema.GroupVersionResource]string{
+				kube.ResourceGVR(): "DevboxList",
+			},
+		),
+		namespace,
+	)
+	clientset := k8sfake.NewSimpleClientset(
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "svc-hermes",
+				Namespace: namespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/name":     "hermes-agent",
+					"agent.sealos.io/name":       agentName,
+					"agent.sealos.io/managed-by": kube.ManagedByValue(),
+				},
+			},
+		},
+	)
+	clientset.PrependReactor("delete", "services", func(ktesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("delete denied")
+	})
+
+	err := deleteManagedAgentResources(context.Background(), repo, clientset, namespace, agentName)
+	if err == nil {
+		t.Fatal("deleteManagedAgentResources() error = nil, want non-nil when devbox missing and service delete fails")
 	}
 }
 
