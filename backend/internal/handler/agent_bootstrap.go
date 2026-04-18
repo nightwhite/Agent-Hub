@@ -214,7 +214,7 @@ func persistBootstrapStatus(ctx context.Context, repo *kube.Repository, agentNam
 }
 
 func truncateBootstrapMessage(message string) string {
-	const maxLength = 240
+	const maxLength = 1024
 	trimmed := strings.TrimSpace(message)
 	if len(trimmed) <= maxLength {
 		return trimmed

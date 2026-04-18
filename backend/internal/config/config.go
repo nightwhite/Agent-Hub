@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -71,38 +73,17 @@ func normalizeRegion(value string) string {
 }
 
 func loadDotEnv() {
-	raw, err := os.ReadFile(".env")
+	values, err := godotenv.Read(".env")
 	if err != nil {
 		return
 	}
-
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		line = strings.TrimPrefix(line, "export ")
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-
-		key = strings.TrimSpace(key)
-		if key == "" {
+	for key, value := range values {
+		if strings.TrimSpace(key) == "" {
 			continue
 		}
 		if existing, exists := os.LookupEnv(key); exists && strings.TrimSpace(existing) != "" {
 			continue
 		}
-
-		value = strings.TrimSpace(value)
-		if len(value) >= 2 {
-			if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
-				value = value[1 : len(value)-1]
-			}
-		}
-
-		_ = os.Setenv(key, value)
+		_ = os.Setenv(strings.TrimSpace(key), value)
 	}
 }
