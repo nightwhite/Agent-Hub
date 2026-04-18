@@ -3,7 +3,7 @@ import '@xterm/xterm/css/xterm.css'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { LoaderCircle, Terminal as TerminalIcon } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { TerminalSessionState } from '../../../domains/agents/types'
 import { Button } from '../../ui/Button'
 
@@ -65,9 +65,9 @@ export function AgentTerminalWorkspace({
   const inputHandlerRef = useRef(onInput)
   const resizeHandlerRef = useRef(onResize)
   const readyHandlerRef = useRef(onReady)
+  const detachOutputRef = useRef<(() => void) | null>(null)
   const connectedTerminalIdRef = useRef('')
   const announcedStateRef = useRef('')
-  const [terminalMounted, setTerminalMounted] = useState(false)
 
   useEffect(() => {
     inputHandlerRef.current = onInput
@@ -106,9 +106,8 @@ export function AgentTerminalWorkspace({
     terminal.open(containerRef.current)
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
-    setTerminalMounted(true)
 
-    terminal.writeln('\x1b[90mConnecting to agent shell...\x1b[0m')
+    terminal.writeln('\x1b[90m正在连接终端...\x1b[0m')
 
     const resizeNow = () => {
       if (!terminalRef.current || !fitAddonRef.current) return
@@ -136,7 +135,15 @@ export function AgentTerminalWorkspace({
       resizeNowRef.current()
     })
 
+    if (onAttachOutput) {
+      detachOutputRef.current = onAttachOutput((chunk) => {
+        terminalRef.current?.write(chunk)
+      })
+    }
+
     return () => {
+      detachOutputRef.current?.()
+      detachOutputRef.current = null
       resizeObserver.disconnect()
       dataDisposable.dispose()
       fitAddon.dispose()
@@ -144,19 +151,8 @@ export function AgentTerminalWorkspace({
       terminalRef.current = null
       fitAddonRef.current = null
       resizeNowRef.current = () => {}
-      setTerminalMounted(false)
     }
-  }, [session?.terminalId])
-
-  useEffect(() => {
-    if (!terminalMounted || !onAttachOutput || !terminalRef.current || !session?.terminalId) {
-      return
-    }
-
-    return onAttachOutput((chunk) => {
-      terminalRef.current?.write(chunk)
-    })
-  }, [onAttachOutput, session?.terminalId, terminalMounted])
+  }, [onAttachOutput, session])
 
   useEffect(() => {
     if (!session || !terminalRef.current) return
@@ -180,7 +176,7 @@ export function AgentTerminalWorkspace({
 
     if (session.status === 'disconnected' && announcedStateRef.current !== 'disconnected') {
       announcedStateRef.current = 'disconnected'
-      terminalRef.current.writeln('\r\n\x1b[33mTerminal session closed.\x1b[0m')
+      terminalRef.current.writeln('\r\n\x1b[33m终端连接已关闭。\x1b[0m')
     }
   }, [session])
 
@@ -214,22 +210,22 @@ export function AgentTerminalWorkspace({
         </span>
         {session.namespace ? (
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-            Namespace: {session.namespace}
+            命名空间: {session.namespace}
           </span>
         ) : null}
         {session.podName ? (
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-            Pod: {session.podName}
+            实例: {session.podName}
           </span>
         ) : null}
         {session.containerName ? (
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-            Container: {session.containerName}
+            容器: {session.containerName}
           </span>
         ) : null}
         {session.cwd ? (
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-mono">
-            CWD: {session.cwd}
+            当前目录: {session.cwd}
           </span>
         ) : null}
       </div>

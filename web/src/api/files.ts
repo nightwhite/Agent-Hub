@@ -1,4 +1,6 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
+
 import { findExecPodForApp } from './k8s'
 import {
   base64ToText,

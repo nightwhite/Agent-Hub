@@ -7,10 +7,10 @@ interface AgentStatusCellProps {
 
 export function AgentStatusCell({ item }: AgentStatusCellProps) {
   return (
-    <div className="min-w-0 pr-3">
-      <StatusBadge status={item.status} />
+    <div className="flex min-w-0 flex-col items-start gap-1 pr-3">
+      <StatusBadge compact status={item.status} />
       {item.bootstrapMessage && item.status === 'creating' ? (
-        <div className="mt-1 line-clamp-1 text-[11px] leading-4 text-zinc-500">
+        <div className="line-clamp-1 text-[11px]/4 text-zinc-500">
           {item.bootstrapMessage}
         </div>
       ) : null}

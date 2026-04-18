@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
 
 export const formatDisplayTime = (value) => {
@@ -246,6 +247,6 @@ export const parseContentDispositionFilename = (value = '') => {
     }
   }
 
-  const asciiMatch = value.match(/filename=\"?([^\";]+)\"?/i)
+  const asciiMatch = value.match(/filename="?([^";]+)"?/i)
   return asciiMatch?.[1] || ''
 }

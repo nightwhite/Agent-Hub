@@ -1,29 +1,35 @@
 package ws
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/nightwhite/Agent-Hub/internal/dto"
 )
 
-func TestResolveFilePathStaysUnderWorkspaceRoot(t *testing.T) {
+func TestResolveFilePathResolvesRelativePath(t *testing.T) {
 	t.Parallel()
 
 	got, err := resolveFilePath("notes/today.txt")
 	if err != nil {
 		t.Fatalf("resolveFilePath() error = %v", err)
 	}
-	if got != "/opt/hermes/notes/today.txt" {
-		t.Fatalf("resolveFilePath() = %q, want /opt/hermes/notes/today.txt", got)
+	if got != "/notes/today.txt" {
+		t.Fatalf("resolveFilePath() = %q, want /notes/today.txt", got)
 	}
 }
 
-func TestResolveFilePathRejectsEscapes(t *testing.T) {
+func TestResolveFilePathAllowsAbsolutePath(t *testing.T) {
 	t.Parallel()
 
-	for _, input := range []string{"../etc/passwd", "/tmp/file"} {
-		if _, err := resolveFilePath(input); err == nil {
-			t.Fatalf("resolveFilePath(%q) should fail", input)
+	for _, input := range []string{"/tmp/file", "/opt/hermes/notes/today.txt"} {
+		got, err := resolveFilePath(input)
+		if err != nil {
+			t.Fatalf("resolveFilePath(%q) error = %v", input, err)
+		}
+		if got != input {
+			t.Fatalf("resolveFilePath(%q) = %q, want %q", input, got, input)
 		}
 	}
 }
@@ -110,15 +116,15 @@ func TestValidateMessageAllowsWhitespaceTerminalInput(t *testing.T) {
 	}
 }
 
-func TestResolveFilePathAllowsWorkspaceAbsolutePath(t *testing.T) {
+func TestResolveFilePathResolvesDotDotRelativePath(t *testing.T) {
 	t.Parallel()
 
-	got, err := resolveFilePath("/opt/hermes/notes/today.txt")
+	got, err := resolveFilePath("../etc/passwd")
 	if err != nil {
 		t.Fatalf("resolveFilePath() error = %v", err)
 	}
-	if got != "/opt/hermes/notes/today.txt" {
-		t.Fatalf("resolveFilePath() = %q, want /opt/hermes/notes/today.txt", got)
+	if got != "/etc/passwd" {
+		t.Fatalf("resolveFilePath() = %q, want /etc/passwd", got)
 	}
 }
 
@@ -187,5 +193,33 @@ func TestParseListOutputReturnsStructuredItems(t *testing.T) {
 	}
 	if items[0]["name"] != "a.txt" || items[0]["type"] != "file" {
 		t.Fatalf("parseListOutput() first item = %#v", items[0])
+	}
+}
+
+func TestListCommandUsesStatForFileSize(t *testing.T) {
+	t.Parallel()
+
+	command := listCommand("/opt/hermes")
+	if strings.Contains(command, "wc -c") {
+		t.Fatalf("listCommand() = %q, should not rely on wc -c", command)
+	}
+	if !strings.Contains(command, "find \"$dir\" -mindepth 1 -maxdepth 1") {
+		t.Fatalf("listCommand() = %q, want find-based bulk listing path", command)
+	}
+	if !strings.Contains(command, "| sed -e 's/") || !strings.Contains(command, "dir") || !strings.Contains(command, "other") {
+		t.Fatalf("listCommand() = %q, want streaming type remap for bulk listing output", command)
+	}
+	if !strings.Contains(command, "stat -c %s") {
+		t.Fatalf("listCommand() = %q, want stat-based fallback when find -printf is unavailable", command)
+	}
+}
+
+func TestFormatFileListErrorReturnsFriendlyTimeout(t *testing.T) {
+	t.Parallel()
+
+	got := formatFileListError(context.DeadlineExceeded)
+	want := "directory listing timed out; the directory may contain too many entries or the container filesystem is slow"
+	if got != want {
+		t.Fatalf("formatFileListError() = %q, want %q", got, want)
 	}
 }

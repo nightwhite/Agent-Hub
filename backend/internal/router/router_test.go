@@ -75,6 +75,116 @@ func TestReadyzReturnsStandardEnvelope(t *testing.T) {
 	}
 }
 
+func TestSystemConfigReturnsRuntimeRegionWithoutAuthorization(t *testing.T) {
+	t.Parallel()
+
+	recorder := performRequestWithConfig(t, config.Config{
+		Port:                "8080",
+		IngressSuffix:       "agent.usw-1.sealos.app",
+		APIServerImage:      "nousresearch/hermes-agent:latest",
+		AIProxyModelBaseURL: "https://aiproxy.example.com/v1",
+		Region:              "cn",
+	}, http.MethodGet, "/api/v1/system/config", "", "", nil)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/system/config status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	body := decodeEnvelope(t, recorder)
+	if body.Code != 0 || body.Message != "ok" {
+		t.Fatalf("GET /api/v1/system/config envelope = %#v, want code=0 message=ok", body)
+	}
+	if body.Data["region"] != "cn" {
+		t.Fatalf("GET /api/v1/system/config data.region = %#v, want cn", body.Data["region"])
+	}
+	if body.Data["aiProxyModelBaseURL"] != "https://aiproxy.example.com/v1" {
+		t.Fatalf("GET /api/v1/system/config data.aiProxyModelBaseURL = %#v, want explicit value", body.Data["aiProxyModelBaseURL"])
+	}
+}
+
+func TestListTemplatesReturnsRegionalCatalogWithoutAuthorization(t *testing.T) {
+	t.Parallel()
+
+	recorder := performRequestWithConfig(t, config.Config{
+		Port:                "8080",
+		IngressSuffix:       "agent.usw-1.sealos.app",
+		APIServerImage:      "nousresearch/hermes-agent:latest",
+		AIProxyModelBaseURL: "https://aiproxy.example.com/v1",
+		Region:              "cn",
+	}, http.MethodGet, "/api/v1/templates", "", "", nil)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/templates status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	body := decodeEnvelope(t, recorder)
+	if body.Code != 0 || body.Message != "ok" {
+		t.Fatalf("GET /api/v1/templates envelope = %#v, want code=0 message=ok", body)
+	}
+	if body.Data["region"] != "cn" {
+		t.Fatalf("GET /api/v1/templates data.region = %#v, want cn", body.Data["region"])
+	}
+
+	items, ok := body.Data["items"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatalf("GET /api/v1/templates data.items = %#v, want non-empty list", body.Data["items"])
+	}
+
+	foundHermes := false
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok || item["id"] != "hermes-agent" {
+			continue
+		}
+		foundHermes = true
+
+		modelOptions, ok := item["modelOptions"].([]any)
+		if !ok || len(modelOptions) == 0 {
+			t.Fatalf("hermes-agent modelOptions = %#v, want regional presets", item["modelOptions"])
+		}
+
+		for _, optionRaw := range modelOptions {
+			option, ok := optionRaw.(map[string]any)
+			if !ok {
+				t.Fatalf("hermes-agent model option = %#v, want map", optionRaw)
+			}
+			if option["value"] == "gpt-5.4-mini" {
+				t.Fatalf("cn catalog should not expose us-only model gpt-5.4-mini: %#v", modelOptions)
+			}
+		}
+	}
+
+	if !foundHermes {
+		t.Fatal("GET /api/v1/templates did not return hermes-agent")
+	}
+}
+
+func TestListTemplatesRejectsMissingRegion(t *testing.T) {
+	t.Parallel()
+
+	recorder := performRequestWithConfig(t, config.Config{
+		Port:                "8080",
+		IngressSuffix:       "agent.usw-1.sealos.app",
+		APIServerImage:      "nousresearch/hermes-agent:latest",
+		AIProxyModelBaseURL: "https://aiproxy.example.com/v1",
+	}, http.MethodGet, "/api/v1/templates", "", "", nil)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("GET /api/v1/templates status = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+
+	body := decodeEnvelope(t, recorder)
+	if body.Code != 50100 {
+		t.Fatalf("GET /api/v1/templates code = %d, want 50100", body.Code)
+	}
+	if body.Error == nil || body.Error.Type != "not_implemented" {
+		t.Fatalf("GET /api/v1/templates error = %#v, want not_implemented", body.Error)
+	}
+	if body.Error.Details["field"] != "REGION" {
+		t.Fatalf("GET /api/v1/templates error.details.field = %#v, want REGION", body.Error.Details["field"])
+	}
+}
+
 func TestListAgentsRequiresAuthorization(t *testing.T) {
 	t.Parallel()
 
@@ -354,13 +464,16 @@ func TestCreateAgentValidationErrorsUse422Envelope(t *testing.T) {
 	t.Parallel()
 
 	payload := `{
+		"template-id":"hermes-agent",
 		"agent-name":"demo-agent",
 		"agent-cpu":"1000m",
 		"agent-memory":"2Gi",
 		"agent-storage":"10Gi",
-		"agent-model-provider":"openai",
-		"agent-model-baseurl":"not-a-url",
-		"agent-model":"gpt-4.1"
+		"settings":{
+			"provider":"openai",
+			"baseURL":"not-a-url",
+			"model":"gpt-4.1"
+		}
 	}`
 
 	recorder := performRequest(t, http.MethodPost, "/api/v1/agents", payload, "", map[string]string{
@@ -378,11 +491,11 @@ func TestCreateAgentValidationErrorsUse422Envelope(t *testing.T) {
 	if body.Error == nil || body.Error.Type != "validation_failed" {
 		t.Fatalf("POST /api/v1/agents invalid payload error = %#v, want validation_failed", body.Error)
 	}
-	if body.Error.Details["field"] != "agent-model-baseurl" {
-		t.Fatalf("POST /api/v1/agents invalid payload error.details.field = %#v, want agent-model-baseurl", body.Error.Details["field"])
+	if body.Error.Details["field"] != "settings.provider" && body.Error.Details["field"] != "settings.baseURL" {
+		t.Fatalf("POST /api/v1/agents invalid payload error.details.field = %#v, want settings.provider/settings.baseURL", body.Error.Details["field"])
 	}
-	if body.Error.Details["reason"] != "invalid_url" {
-		t.Fatalf("POST /api/v1/agents invalid payload error.details.reason = %#v, want invalid_url", body.Error.Details["reason"])
+	if body.Error.Details["reason"] != "unsupported_field" && body.Error.Details["reason"] != "invalid_url" {
+		t.Fatalf("POST /api/v1/agents invalid payload error.details.reason = %#v, want unsupported_field/invalid_url", body.Error.Details["reason"])
 	}
 }
 
@@ -395,8 +508,18 @@ func TestUpdateAgentOnlyAcceptsPatchRoute(t *testing.T) {
 	}
 
 	patchRecorder := performRequest(t, http.MethodPatch, "/api/v1/agents/demo-agent", "", "", nil)
-	if patchRecorder.Code != http.StatusUnauthorized {
-		t.Fatalf("PATCH /api/v1/agents/:agentName status = %d, want %d", patchRecorder.Code, http.StatusUnauthorized)
+	if patchRecorder.Code != http.StatusNotFound {
+		t.Fatalf("PATCH /api/v1/agents/:agentName status = %d, want %d", patchRecorder.Code, http.StatusNotFound)
+	}
+
+	runtimeRecorder := performRequest(t, http.MethodPatch, "/api/v1/agents/demo-agent/runtime", "", "", nil)
+	if runtimeRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("PATCH /api/v1/agents/:agentName/runtime status = %d, want %d", runtimeRecorder.Code, http.StatusUnauthorized)
+	}
+
+	settingsRecorder := performRequest(t, http.MethodPatch, "/api/v1/agents/demo-agent/settings", "", "", nil)
+	if settingsRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("PATCH /api/v1/agents/:agentName/settings status = %d, want %d", settingsRecorder.Code, http.StatusUnauthorized)
 	}
 }
 
@@ -463,9 +586,11 @@ func performRequest(t *testing.T, method, target, body, rawQuery string, headers
 	t.Helper()
 
 	return performRequestWithConfig(t, config.Config{
-		Port:           "8080",
-		IngressSuffix:  "agent.usw-1.sealos.app",
-		APIServerImage: "nousresearch/hermes-agent:latest",
+		Port:                "8080",
+		IngressSuffix:       "agent.usw-1.sealos.app",
+		APIServerImage:      "nousresearch/hermes-agent:latest",
+		AIProxyModelBaseURL: "https://aiproxy.example.com/v1",
+		Region:              "us",
 	}, method, target, body, rawQuery, headers)
 }
 

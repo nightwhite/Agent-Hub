@@ -1,4 +1,6 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
+
 import { parse as parseYaml } from 'yaml'
 import { dedupeAuthCandidates, getNow, maskTokenForLog, toKubeconfigScalar } from './shared'
 

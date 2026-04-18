@@ -8,7 +8,11 @@ type Agent struct {
 	CPU              string
 	Memory           string
 	Storage          string
+	RuntimeClassName string
 	WorkingDir       string
+	User             string
+	NetworkType      string
+	SSHPort          int32
 	ModelProvider    string
 	ModelBaseURL     string
 	ModelAPIKey      string
@@ -19,4 +23,6 @@ type Agent struct {
 	BootstrapMessage string
 	Ready            bool
 	Status           Status
+	Annotations      map[string]string
+	Env              map[string]string
 }

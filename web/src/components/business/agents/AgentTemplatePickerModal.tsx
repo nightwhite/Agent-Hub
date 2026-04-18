@@ -1,11 +1,11 @@
-import { AGENT_TEMPLATE_LIST } from '../../../domains/agents/templates'
-import type { AgentTemplateId } from '../../../domains/agents/types'
+import type { AgentTemplateDefinition, AgentTemplateId } from '../../../domains/agents/types'
 import { Button } from '../../ui/Button'
 import { Modal } from '../../ui/Modal'
 import { AgentTemplatePickerPanel } from './AgentTemplatePickerPanel'
 
 interface AgentTemplatePickerModalProps {
   open: boolean
+  templates: AgentTemplateDefinition[]
   selectedTemplateId: AgentTemplateId
   onClose: () => void
   onSelect: (templateId: AgentTemplateId) => void
@@ -14,12 +14,13 @@ interface AgentTemplatePickerModalProps {
 
 export function AgentTemplatePickerModal({
   open,
+  templates,
   selectedTemplateId,
   onClose,
   onSelect,
   onContinue,
 }: AgentTemplatePickerModalProps) {
-  const selectedTemplate = AGENT_TEMPLATE_LIST.find((template) => template.id === selectedTemplateId)
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || null
 
   return (
     <Modal
@@ -34,7 +35,7 @@ export function AgentTemplatePickerModal({
       title="选择 Agent 模板"
       widthClassName="max-w-4xl"
     >
-      <AgentTemplatePickerPanel onSelect={onSelect} />
+      <AgentTemplatePickerPanel onSelect={onSelect} templates={templates} />
     </Modal>
   )
 }

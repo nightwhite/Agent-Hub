@@ -17,7 +17,7 @@ export function AgentChatWorkspace({
   onSend,
   onOpen,
   emptyTitle = '对话工作台',
-  emptyDescription = '初始化对话会话后，可以直接在这里验证 Agent 的模型接入和响应能力。',
+  emptyDescription = '打开后可以直接和 Agent 对话，验证回复效果。',
 }: AgentChatWorkspaceProps) {
   if (!session) {
     return (
@@ -31,7 +31,7 @@ export function AgentChatWorkspace({
           <div className="mt-4">
             <Button onClick={onOpen}>
               <Bot size={16} />
-              初始化对话
+              开始对话
             </Button>
           </div>
         ) : null}
@@ -53,22 +53,18 @@ export function AgentChatWorkspace({
             状态: {session.status}
           </span>
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-            Transport: {session.transport}
+            通道: {session.transport}
           </span>
         </div>
       </div>
 
       <div className="min-h-0 flex-1 px-4 py-4">
         <div className="flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50">
-          <div className="border-b border-slate-200 px-3 py-2 text-xs text-slate-500">
-            这里会保留本次验证会话的上下文消息。
-          </div>
-
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
             {!session.messages.length ? (
-              <div className="flex h-full min-h-[180px] items-center justify-center text-sm text-slate-400">
-                发送第一条消息，验证 Agent 对话能力。
-              </div>
+                <div className="flex h-full min-h-[180px] items-center justify-center text-sm text-slate-400">
+                发送第一条消息开始对话。
+                </div>
             ) : (
               session.messages.map((message) => (
                 <div

@@ -1,21 +1,43 @@
-import { HardDrive } from 'lucide-react'
-import type { ReactNode } from 'react'
-import { cn } from '../../../lib/format'
-import { resolveCreateModelOptions } from '../../../domains/agents/models'
-import { RESOURCE_PRESETS, resolveTemplateById } from '../../../domains/agents/templates'
-import type { AgentBlueprint, AgentTemplateId } from '../../../domains/agents/types'
-import { Input } from '../../ui/Input'
-import { Select } from '../../ui/Select'
+import { HardDrive } from "lucide-react";
+import type { ReactNode } from "react";
+import { readBlueprintSettingValue } from "../../../domains/agents/blueprintFields";
+import { formatModelProviderLabel } from "../../../domains/agents/aiproxy";
+import {
+  describeRegionModelPreset,
+  RESOURCE_PRESETS,
+} from "../../../domains/agents/templates";
+import { cn } from "../../../lib/format";
+import type {
+  AgentBlueprint,
+  AgentHubRegion,
+  AgentSettingField,
+  AgentTemplateDefinition,
+} from "../../../domains/agents/types";
+import { Button } from "../../ui/Button";
+import { Input } from "../../ui/Input";
+import { Select } from "../../ui/Select";
 
 interface AgentConfigFormProps {
-  mode: 'create' | 'edit'
-  templateId: AgentTemplateId
-  blueprint: AgentBlueprint
-  workspaceModelBaseURL: string
-  workspaceModelKey: string
-  workspaceModelKeyReady: boolean
-  onChange: (field: keyof AgentBlueprint, value: string) => void
-  onSelectPreset: (presetId: AgentBlueprint['profile']) => void
+  mode: "create" | "edit";
+  template: AgentTemplateDefinition | null;
+  blueprint: AgentBlueprint;
+  workspaceRegion: AgentHubRegion | string;
+  workspaceModelBaseURL: string;
+  workspaceModelKeyReady: boolean;
+  onChangeTemplate?: () => void;
+  onChange: (field: keyof AgentBlueprint, value: string) => void;
+  onChangeSettingField: (field: AgentSettingField, value: string) => void;
+  onSelectPreset: (presetId: AgentBlueprint["profile"]) => void;
+}
+
+function formatKeySourceLabel(value = "", ready = false) {
+  if (!ready) return "未准备";
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized || normalized === "unset") return "未准备";
+  if (normalized === "workspace-aiproxy") return "由工作区提供";
+  return value;
 }
 
 function FormItem({
@@ -24,97 +46,151 @@ function FormItem({
   children,
   className,
 }: {
-  label: string
-  hint?: string
-  children: ReactNode
-  className?: string
+  label: string;
+  hint?: string;
+  children: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn("space-y-2", className)}>
       <div className="text-sm font-medium text-zinc-900">{label}</div>
       {children}
-      {hint ? <div className="text-xs leading-5 text-zinc-500">{hint}</div> : null}
+      {hint ? (
+        <div className="text-xs leading-5 text-zinc-500">{hint}</div>
+      ) : null}
     </div>
-  )
+  );
 }
 
 export function AgentConfigForm({
   mode,
-  templateId,
+  template,
   blueprint,
+  workspaceRegion,
   workspaceModelBaseURL,
-  workspaceModelKey,
   workspaceModelKeyReady,
+  onChangeTemplate,
   onChange,
+  onChangeSettingField,
   onSelectPreset,
 }: AgentConfigFormProps) {
-  const template = resolveTemplateById(templateId)
-  const isCustomPreset = blueprint.profile === 'custom'
-  const resolvedModelBaseURL = workspaceModelBaseURL || blueprint.modelBaseURL
-  const createModeProviderText = 'custom'
-  const createModelOptions = resolveCreateModelOptions(templateId)
+  if (!template) {
+    return null;
+  }
+
+  const isCustomPreset = blueprint.profile === "custom";
+  const resolvedModelBaseURL = workspaceModelBaseURL || blueprint.modelBaseURL;
+  const formWidthClassName = "w-full";
+  const modelPresetHint = describeRegionModelPreset(
+    String(workspaceRegion || "")
+      .trim()
+      .toLowerCase() === "cn"
+      ? "cn"
+      : "us",
+    template,
+  );
+
+  const handleModelChange = (value: string) => {
+    const option =
+      template.modelOptions.find((item) => item.value === value) || null;
+    const modelField = template.settings.agent.find(
+      (item) => item.binding.key === "model",
+    );
+    const providerField = template.settings.agent.find(
+      (item) => item.binding.key === "modelProvider",
+    );
+
+    if (modelField) {
+      onChangeSettingField(modelField, value);
+    } else {
+      onChange("model", value);
+    }
+
+    if (providerField) {
+      onChangeSettingField(providerField, option?.provider || "");
+    } else {
+      onChange("modelProvider", option?.provider || "");
+    }
+  };
 
   const renderRuntimeItem = () => (
-    <FormItem label="运行时环境">
-      <div className="flex items-center rounded-xl border border-zinc-200 bg-white p-3">
-        <div className="flex w-[500px] min-w-0 items-center gap-3">
+    <FormItem className={formWidthClassName} label="运行时环境">
+      <div className="workbench-card flex flex-wrap items-center gap-3 p-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border-[0.5px] border-zinc-200 bg-zinc-50">
-            <img alt={`${template.name} logo`} className="h-7 w-7 object-cover" src={template.logo} />
+            <img
+              alt={`${template.name} logo`}
+              className="h-7 w-7 object-cover"
+              src={template.logo}
+            />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="truncate font-medium text-zinc-950">{template.name}</span>
-              <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-xs font-medium text-zinc-600">
+              <span className="truncate font-medium text-zinc-950">
+                {template.name}
+              </span>
+              <span className="shrink-0 rounded-full border-[0.5px] border-zinc-200 bg-white px-2 py-0.5 text-xs/4 font-medium text-zinc-600">
                 {template.docsLabel}
               </span>
             </div>
-            <div className="mt-0.5 truncate text-sm/5 text-zinc-500">
-              {template.description || '暂无描述'}
+            <div className="mt-0.5 text-sm/5 text-zinc-500">
+              {template.description || "暂无描述"}
             </div>
           </div>
         </div>
 
-        <div className="ml-auto flex h-10 items-center gap-2">
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="flex max-w-[170px] items-center gap-1.5 text-xs text-zinc-500">
             <HardDrive size={14} className="text-zinc-400" />
-            <span className="font-mono" title={template.defaultWorkingDirectory}>
-              {template.defaultWorkingDirectory}
+            <span className="truncate font-mono" title={template.workingDir}>
+              {template.workingDir}
             </span>
           </div>
+          {onChangeTemplate ? (
+            <Button
+              onClick={onChangeTemplate}
+              size="md"
+              type="button"
+              variant="secondary"
+            >
+              更换模板
+            </Button>
+          ) : null}
         </div>
       </div>
     </FormItem>
-  )
+  );
 
   const renderBaseConfig = () => (
     <FormItem
-      hint="用户只需要填写别名；系统实例名会自动生成，并继续用于资源关联与账单侧识别。"
-      label={mode === 'create' ? '别名' : '基础信息'}
+      className={formWidthClassName}
+      hint="实例名称会在提交时自动生成并继续用于资源关联。"
+      label={mode === "create" ? "别名" : "基础信息"}
     >
-      {mode === 'create' ? (
+      {mode === "create" ? (
         <Input
-          className="w-[400px]"
-          onChange={(event) => onChange('aliasName', event.target.value)}
+          className="w-[320px]"
+          onChange={(event) => onChange("aliasName", event.target.value)}
           placeholder="例如：客服助手"
           value={blueprint.aliasName}
         />
       ) : (
-        <div className="flex items-start gap-6">
+        <div className="flex flex-wrap items-start gap-4">
           <Input
-            className="w-[400px]"
+            className="w-[360px]"
             label="别名"
-            onChange={(event) => onChange('aliasName', event.target.value)}
+            onChange={(event) => onChange("aliasName", event.target.value)}
             placeholder="例如：客服助手"
             value={blueprint.aliasName}
           />
           <Input
-            className="w-[260px] font-mono text-xs"
+            className="w-[220px] font-mono text-xs"
             disabled
             label="实例名称"
             value={blueprint.appName}
           />
           <Input
-            className="w-[260px] font-mono text-xs"
+            className="w-[220px] font-mono text-xs"
             disabled
             label="命名空间"
             value={blueprint.namespace}
@@ -122,159 +198,211 @@ export function AgentConfigForm({
         </div>
       )}
     </FormItem>
-  )
+  );
 
   const renderResourceCard = () => (
-    <div className="flex flex-col rounded-2xl border border-zinc-200 bg-white p-8">
-      <span className="text-lg/7 font-medium text-zinc-950">资源规格</span>
-      <div className="mt-6 grid grid-cols-2 gap-3">
+    <div className={`workbench-card flex ${formWidthClassName} flex-col p-5`}>
+      <span className="text-[1.02rem]/6 font-semibold tracking-[-0.02em] text-zinc-950">
+        资源规格
+      </span>
+      <div className="mt-4 grid grid-cols-2 gap-2.5">
         {RESOURCE_PRESETS.map((preset) => {
-          const active = blueprint.profile === preset.id
+          const active = blueprint.profile === preset.id;
           return (
             <button
-              className={`rounded-xl border px-4 py-4 text-left transition ${
+              className={`rounded-xl border px-3.5 py-3.5 text-left transition ${
                 active
-                  ? 'border-zinc-900 bg-zinc-50 shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]'
-                  : 'border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50'
+                  ? "border-zinc-900 bg-zinc-50 shadow-[inset_0_0_0_1px_rgba(24,24,27,0.06)]"
+                  : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
               }`}
               key={preset.id}
               onClick={() => onSelectPreset(preset.id)}
               type="button"
             >
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-zinc-950">{preset.label}</span>
+                <span className="text-sm font-medium text-zinc-950">
+                  {preset.label}
+                </span>
                 {active ? (
                   <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-white">
                     当前
                   </span>
                 ) : null}
               </div>
-              <div className="mt-2 text-xs leading-5 text-zinc-500">{preset.description}</div>
+              <div className="mt-2 text-xs leading-5 text-zinc-500">
+                {preset.description}
+              </div>
             </button>
-          )
+          );
         })}
       </div>
 
-      <div className="mt-10 flex items-start gap-4">
+      <div className="mt-6 flex flex-wrap items-start gap-2.5">
         <Input
-          className="w-[200px]"
+          className="max-w-full w-[164px]"
           disabled={!isCustomPreset}
           label="CPU"
-          onChange={(event) => onChange('cpu', event.target.value)}
+          onChange={(event) => onChange("cpu", event.target.value)}
           placeholder="例如 2000m"
           value={blueprint.cpu}
         />
         <Input
-          className="w-[200px]"
+          className="max-w-full w-[164px]"
           disabled={!isCustomPreset}
           label="内存"
-          onChange={(event) => onChange('memory', event.target.value)}
+          onChange={(event) => onChange("memory", event.target.value)}
           placeholder="例如 4096Mi"
           value={blueprint.memory}
         />
         <Input
-          className="w-[200px]"
+          className="max-w-full w-[164px]"
           label="存储"
-          onChange={(event) => onChange('storageLimit', event.target.value)}
+          onChange={(event) => onChange("storageLimit", event.target.value)}
           placeholder="例如 10Gi"
           value={blueprint.storageLimit}
         />
       </div>
     </div>
-  )
+  );
 
-  const renderModelCard = () => {
-    if (mode === 'create') {
+  const renderAgentField = (field: AgentSettingField) => {
+    const fieldValue = readBlueprintSettingValue(blueprint, field);
+    const bindingKey = String(field.binding?.key || "").trim();
+
+    if (bindingKey === "modelProvider") {
       return (
-        <div className="flex flex-col rounded-2xl border border-zinc-200 bg-white p-8">
-          <span className="text-lg/7 font-medium text-zinc-950">模型接入</span>
-          <div className="mt-6 flex flex-col gap-4">
-            <Input
-              className="w-full font-mono text-xs"
-              hint="后端会把这个基址写入模板运行时配置。"
-              label="AIProxy 推理地址"
-              readOnly
-              value={resolvedModelBaseURL}
-            />
-            <Input
-              className="w-full font-mono text-xs"
-              hint="页面侧只做展示，实际创建时由后端确保并注入。"
-              label="AIProxy 密钥"
-              readOnly
-              value={
-                workspaceModelKeyReady
-                  ? workspaceModelKey
-                  : '正在检查工作区 AIProxy Key，创建时会自动补齐'
-              }
-            />
-          </div>
+        <Input
+          className="max-w-full w-[240px]"
+          hint="该字段会随模型自动切换。"
+          label="模型渠道"
+          readOnly
+          value={formatModelProviderLabel(fieldValue)}
+        />
+      );
+    }
 
-          <div className="mt-6 flex items-start gap-4">
-            <Input
-              className="w-[240px]"
-              hint="Provider 当前固定为 custom（走 AIProxy）。"
-              label="Provider"
-              readOnly
-              value={createModeProviderText}
-            />
-            <Select
-              className="w-[320px]"
-              hint="创建阶段必须明确模型。"
-              label="模型名称"
-              onChange={(event) => onChange('model', event.target.value)}
-              value={blueprint.model}
-            >
-              <option value="">请选择模型</option>
-              {createModelOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.helper ? `${option.label} · ${option.helper}` : option.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
-      )
+    if (bindingKey === "model") {
+      return (
+        <Select
+          className="max-w-full w-[240px]"
+          hint={modelPresetHint}
+          label={field.label}
+          onChange={(event) => handleModelChange(event.target.value)}
+          value={fieldValue}
+        >
+          <option value="">请选择模型</option>
+          {template.modelOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.helper
+                ? `${option.label} · ${option.helper}`
+                : option.label}
+            </option>
+          ))}
+        </Select>
+      );
+    }
+
+    if (bindingKey === "modelBaseURL") {
+      return (
+        <Input
+          className="w-full font-mono text-xs"
+          hint={
+            mode === "create"
+              ? "创建时会自动使用当前工作区的模型地址。"
+              : "保存后将更新为新的模型地址。"
+          }
+          label="模型地址"
+          onChange={
+            mode === "edit"
+              ? (event) => onChangeSettingField(field, event.target.value)
+              : undefined
+          }
+          readOnly={field.readOnly || mode === "create"}
+          value={
+            bindingKey === "modelBaseURL" ? resolvedModelBaseURL : fieldValue
+          }
+        />
+      );
+    }
+
+    if (bindingKey === "keySource") {
+      const keySourceLabel = formatKeySourceLabel(
+        fieldValue,
+        workspaceModelKeyReady,
+      );
+      return (
+        <Input
+          className="w-full font-mono text-xs"
+          hint="这里仅展示密钥来源，密钥内容不会显示在页面上。"
+          label="密钥来源"
+          readOnly
+          value={keySourceLabel}
+        />
+      );
+    }
+
+    if (field.type === "select") {
+      return (
+        <Select
+          className="w-full"
+          hint={field.description}
+          label={field.label}
+          onChange={(event) => onChangeSettingField(field, event.target.value)}
+          value={fieldValue}
+        >
+          <option value="">请选择</option>
+          {(field.options || []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      );
     }
 
     return (
-      <div className="flex flex-col rounded-2xl border border-zinc-200 bg-white p-8">
-        <span className="text-lg/7 font-medium text-zinc-950">模型接入</span>
-        <div className="mt-6 flex items-start gap-4">
-          <Input
-            className="w-[260px]"
-            hint="对应后端 create / patch 请求中的 agent-model-provider。"
-            label="Provider"
-            onChange={(event) => onChange('modelProvider', event.target.value)}
-            placeholder="例如 openai-compatible"
-            value={blueprint.modelProvider}
-          />
-          <Input
-            className="w-[520px]"
-            hint="需要是 http 或 https URL。"
-            label="模型 Base URL"
-            onChange={(event) => onChange('modelBaseURL', event.target.value)}
-            placeholder="例如 https://api.openai.com/v1"
-            value={blueprint.modelBaseURL}
-          />
-          <Input
-            className="w-[320px]"
-            hint="例如 gpt-4o-mini。"
-            label="模型名称"
-            onChange={(event) => onChange('model', event.target.value)}
-            placeholder="例如 gpt-4o-mini"
-            value={blueprint.model}
-          />
+      <Input
+        className="w-full"
+        hint={field.description}
+        label={field.label}
+        readOnly={field.readOnly}
+        onChange={
+          field.readOnly
+            ? undefined
+            : (event) => onChangeSettingField(field, event.target.value)
+        }
+        value={fieldValue}
+      />
+    );
+  };
+
+  const renderAgentSettingsCard = () => (
+    <div className={`workbench-card flex ${formWidthClassName} flex-col p-5`}>
+      <span className="text-[1.02rem]/6 font-semibold tracking-[-0.02em] text-zinc-950">
+        Agent 设置
+      </span>
+
+      {template.settings.agent.length > 0 ? (
+        <div className="mt-4 flex flex-col gap-3.5">
+          {template.settings.agent.map((field) => (
+            <div key={field.key}>{renderAgentField(field)}</div>
+          ))}
         </div>
-      </div>
-    )
-  }
+      ) : (
+        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-[12px]/5 text-zinc-500">
+          当前模板没有额外 Agent 配置项。
+        </div>
+      )}
+
+    </div>
+  );
 
   return (
-    <div className="relative flex min-w-[700px] flex-col gap-4">
+    <div className={`relative flex ${formWidthClassName} flex-col gap-3`}>
       {renderRuntimeItem()}
       {renderBaseConfig()}
       {renderResourceCard()}
-      {renderModelCard()}
+      {renderAgentSettingsCard()}
     </div>
-  )
+  );
 }

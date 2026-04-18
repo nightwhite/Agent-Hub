@@ -60,6 +60,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
   const outputBacklogRef = useRef<string[]>([])
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<number | null>(null)
+  const connectSocketRef = useRef<(version: number, plan: ReconnectPlan, mode: 'fresh' | 'reconnect') => void>(() => {})
   const reconnectPlanRef = useRef<ReconnectPlan>({
     resource: null,
     wsUrl: '',
@@ -67,6 +68,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
     terminalId: '',
     cwd: fallbackTerminalCwd,
   })
+  const clusterKubeconfig = clusterContext?.kubeconfig || ''
 
   const syncSession = useCallback((updater: (current: TerminalSessionState | null) => TerminalSessionState | null) => {
     setTerminalSession((current) => {
@@ -327,10 +329,14 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
 
       reconnectTimerRef.current = window.setTimeout(() => {
         reconnectTimerRef.current = null
-        connectSocket(version, reconnectPlanRef.current, 'reconnect')
+        connectSocketRef.current(version, reconnectPlanRef.current, 'reconnect')
       }, delay)
     })
   }, [clearReconnectTimer, closeSocket, emitOutput, nextRequestId, onErrorMessage, syncSession])
+
+  useEffect(() => {
+    connectSocketRef.current = connectSocket
+  }, [connectSocket])
 
   const openTerminal = useCallback(
     async (resource: AgentListItem) => {
@@ -342,8 +348,8 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
       outputBacklogRef.current = []
       closeSocket()
 
-      if (!clusterContext?.kubeconfig) {
-        const message = '缺少集群上下文，无法建立终端连接。'
+      if (!clusterKubeconfig) {
+        const message = '当前工作区还没准备好，暂时无法连接终端。'
         syncSession(() => ({
           ...createTerminalSession(resource),
           status: 'error',
@@ -356,7 +362,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
       const plan: ReconnectPlan = {
         resource,
         wsUrl: buildAgentWebSocketUrl(resource.name),
-        encodedKubeconfig: encodeURIComponent(clusterContext.kubeconfig),
+        encodedKubeconfig: encodeURIComponent(clusterKubeconfig),
         terminalId: nextRequestId('terminal.session'),
         cwd: resource.template.defaultWorkingDirectory || fallbackTerminalCwd,
       }
@@ -373,7 +379,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
 
       connectSocket(version, plan, 'fresh')
     },
-    [clearReconnectTimer, closeSocket, clusterContext?.kubeconfig, connectSocket, nextRequestId, onErrorMessage, syncSession],
+    [clearReconnectTimer, closeSocket, clusterKubeconfig, connectSocket, nextRequestId, onErrorMessage, syncSession],
   )
 
   const sendTerminalInput = useCallback(

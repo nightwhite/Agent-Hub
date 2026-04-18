@@ -12,7 +12,14 @@
 在 `backend/` 目录执行：
 
 ```bash
-INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-agent:latest go run cmd/app/main.go
+cp .env.example .env
+go run cmd/app/main.go
+```
+
+或者继续使用显式环境变量：
+
+```bash
+REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-agent:latest go run cmd/app/main.go
 ```
 
 启动成功后默认监听：

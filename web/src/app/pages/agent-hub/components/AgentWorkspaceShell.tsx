@@ -16,7 +16,7 @@ export function AgentWorkspaceShell({
         className={cn(
           // DevBox style: each page owns its own padding + min-width strategy.
           // The shell only defines the desktop workbench viewport and horizontal scroll.
-          'flex h-[calc(100vh-28px)] min-w-0 flex-col overflow-x-auto overflow-y-hidden',
+          'flex h-[calc(100vh-28px)] min-w-0 flex-col overflow-x-hidden overflow-y-hidden',
           className,
         )}
       >

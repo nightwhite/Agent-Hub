@@ -10,25 +10,25 @@ func TestNormalizeHermesProvider(t *testing.T) {
 		baseURL  string
 		want     string
 	}{
-		"empty with base url falls back to custom": {
+		"empty provider stays auto": {
 			provider: "",
 			baseURL:  "https://aiproxy.usw-1.sealos.io/v1",
-			want:     "custom",
+			want:     "auto",
 		},
-		"openai maps to custom": {
+		"openai keeps openai": {
 			provider: "openai",
-			baseURL:  "https://aiproxy.usw-1.sealos.io/v1",
-			want:     "custom",
+			baseURL:  "https://api.openai.com/v1",
+			want:     "openai",
 		},
-		"openrouter stays openrouter": {
+		"openrouter keeps openrouter": {
 			provider: "openrouter",
 			baseURL:  "https://openrouter.ai/api/v1",
 			want:     "openrouter",
 		},
-		"custom stays custom": {
-			provider: "custom",
+		"aiproxy named provider stays named": {
+			provider: "custom:aiproxy-chat",
 			baseURL:  "https://aiproxy.usw-1.sealos.io/v1",
-			want:     "custom",
+			want:     "custom:aiproxy-chat",
 		},
 	}
 

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,7 +30,7 @@ import (
 )
 
 const (
-	fileRootDir         = "/opt/hermes"
+	fileRootDir         = "/"
 	terminalDefaultDir  = "/opt/data/workspace"
 	terminalHomeDir     = "/opt/data/home"
 	terminalInstallDir  = "/opt/hermes"
@@ -410,7 +411,7 @@ func (s *session) fileList(message dto.WSMessage) {
 
 	output, execErr := s.execCapture([]string{"sh", "-lc", listCommand(resolved)}, "")
 	if execErr != nil {
-		s.sendError(message.RequestID, "file_list_failed", execErr.Error())
+		s.sendError(message.RequestID, "file_list_failed", formatFileListError(execErr))
 		return
 	}
 
@@ -981,19 +982,10 @@ func resolveFilePath(raw string) (string, error) {
 
 	cleaned := path.Clean(raw)
 	if path.IsAbs(cleaned) {
-		if cleaned == fileRootDir || strings.HasPrefix(cleaned, fileRootDir+"/") {
-			return cleaned, nil
-		}
-		return "", fmt.Errorf("path escapes the workspace root")
-	}
-	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", fmt.Errorf("path escapes the workspace root")
+		return cleaned, nil
 	}
 
 	resolved := path.Join(fileRootDir, cleaned)
-	if resolved != fileRootDir && !strings.HasPrefix(resolved, fileRootDir+"/") {
-		return "", fmt.Errorf("path escapes the workspace root")
-	}
 	return resolved, nil
 }
 
@@ -1043,18 +1035,32 @@ func shellQuote(input string) string {
 	return "'" + strings.ReplaceAll(input, "'", `'\''`) + "'"
 }
 
+func formatFileListError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "directory listing timed out; the directory may contain too many entries or the container filesystem is slow"
+	}
+	return err.Error()
+}
+
 func listCommand(dir string) string {
 	return "dir=" + shellQuote(dir) + "; " +
 		"[ -d \"$dir\" ] || { echo 'not_a_directory'; exit 1; }; " +
+		"if command -v find >/dev/null 2>&1 && find \"$dir\" -maxdepth 0 -printf '' >/dev/null 2>&1; then " +
+		"find \"$dir\" -mindepth 1 -maxdepth 1 " +
+		"\\( -type d -printf '%f\td\t0\n' -o -type f -printf '%f\tf\t%s\n' -o -printf '%f\to\t0\n' \\) 2>/dev/null | " +
+		"sed -e 's/\td\t/\tdir\t/' -e 's/\tf\t/\tfile\t/' -e 's/\to\t/\tother\t/'; " +
+		"else " +
 		"for p in \"$dir\"/.* \"$dir\"/*; do " +
 		"[ ! -e \"$p\" ] && continue; " +
-		"base=$(basename \"$p\"); " +
+		"base=${p##*/}; " +
 		"[ \"$base\" = \".\" ] && continue; " +
 		"[ \"$base\" = \"..\" ] && continue; " +
-		"if [ -d \"$p\" ]; then kind=dir; elif [ -f \"$p\" ]; then kind=file; else kind=other; fi; " +
-		"size=$(wc -c < \"$p\" 2>/dev/null || printf 0); " +
+		"if [ -d \"$p\" ]; then kind=dir; size=0; " +
+		"elif [ -f \"$p\" ]; then kind=file; size=$(stat -c %s -- \"$p\" 2>/dev/null || printf 0); " +
+		"else kind=other; size=0; fi; " +
 		"printf '%s\t%s\t%s\n' \"$base\" \"$kind\" \"$size\"; " +
-		"done"
+		"done; " +
+		"fi"
 }
 
 func parseListOutput(raw string) []map[string]any {

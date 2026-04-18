@@ -7,8 +7,12 @@ interface AgentFilesModalProps {
   open: boolean
   session: FilesSessionState | null
   onClose: () => void
+  onSelectEntry: (item: AgentFileItem) => void
   onOpenEntry: (item: AgentFileItem) => void
+  onEditEntry: (item: AgentFileItem) => void
+  onPrefetchDirectory?: (path: string) => void
   onOpenParent: () => void
+  onJumpToPath: (path: string) => void
   onRefresh: () => void
   onChangeContent: (value: string) => void
   onSave: () => void
@@ -23,8 +27,12 @@ export function AgentFilesModal({
   open,
   session,
   onClose,
+  onSelectEntry,
   onOpenEntry,
+  onEditEntry,
+  onPrefetchDirectory,
   onOpenParent,
+  onJumpToPath,
   onRefresh,
   onChangeContent,
   onSave,
@@ -38,7 +46,7 @@ export function AgentFilesModal({
 
   return (
     <Modal
-      description="管理 Agent 安装目录中的文件。当前后端文件操作根目录固定为 /opt/hermes。"
+      description="管理当前 Agent 工作目录中的文件，支持目录切换、Markdown 预览与常用文本编辑。"
       footer={
         <Button onClick={onClose} variant="secondary">
           关闭
@@ -55,8 +63,12 @@ export function AgentFilesModal({
         onCreateFile={onCreateFile}
         onDelete={onDelete}
         onDownload={onDownload}
+        onEditEntry={onEditEntry}
+        onSelectEntry={onSelectEntry}
         onOpenEntry={onOpenEntry}
+        onPrefetchDirectory={onPrefetchDirectory}
         onOpenParent={onOpenParent}
+        onJumpToPath={onJumpToPath}
         onRefresh={onRefresh}
         onSave={onSave}
         onUpload={onUpload}

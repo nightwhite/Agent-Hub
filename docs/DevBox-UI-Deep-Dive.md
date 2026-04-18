@@ -293,6 +293,103 @@ Header 的 back 行为与来源耦合：
 
 这是典型的“系统工具韧性体验”。
 
+#### 3.4.7 Basic / Release：DevBox 详情页不是展示页，而是运维工作台
+
+入口：
+
+- `detail/components/Basic.tsx`
+- `detail/components/Release.tsx`
+
+`Basic.tsx` 的重点不是“多几个字段”，而是把基础信息和 SSH 操作合并进同一张工作台卡片：
+
+- 顶部标题右侧直接带 runtime 标识胶囊
+- 基础信息按 single / double row 结构组织，而不是自由流式排版
+- SSH 连接串在 Running 时直接可复制，并配合 Tooltip 和复制图标
+- 私钥下载、一键配置 SSH 都是卡片内动作，不需要跳页
+
+`Release.tsx` 更能说明 DevBox 的详情页逻辑：
+
+- 版本表格不是历史记录展示，而是发布控制台
+- 空态不是“暂无数据”，而是明确告诉用户“点击 release 后才能部署 app”
+- deploy、convert to runtime、delete 等动作都围绕版本对象本身展开
+- 版本列表的 polling 会根据最新 release 状态动态启停
+
+结论：**DevBox 详情页的 overview 实际上是“信息 + 运维动作”混合工作台，不是普通概览页。**
+
+## 4.6 Template Empty / PrivateTemplate：空态与数据规模都被视作产品语义的一部分
+
+入口：
+
+- `template/components/Empty.tsx`
+- `template/components/PrivateTemplate.tsx`
+
+两个额外特征值得记录：
+
+- Empty 依然坚持“大底图 + 中央叠字”的表达，即使源码里作者吐槽“ugly”，仍然保持了与首页空态同一视觉语法
+- PrivateTemplate 与 PublicTemplate 共享卡片语言、分页脚和滚动容器，说明 DevBox 的一致性依赖“容器语法复用”，不是每个页面各自定义视觉
+
+## 5. DevBox 的前后端协同方式
+
+如果只看前端页面，很容易误判 DevBox 是一个“视觉样式很统一的前端应用”。实际上它的工作台感来自前后端同时建模。
+
+### 5.1 `api/devbox.ts`：前端只暴露工作流级动作
+
+入口：`reference/sealos/frontend/providers/devbox/api/devbox.ts`
+
+特征：
+
+- 前端 API 按“工作流动作”命名，而不是裸资源操作
+  - `getMyDevboxList`
+  - `getDevboxByName`
+  - `startDevbox`
+  - `shutdownDevbox`
+  - `restartDevbox`
+  - `releaseDevbox`
+- 这让页面可以直接围绕“创建 / 启动 / 暂停 / 发布 / 部署”组织动作区，而不是先解释 Kubernetes 资源
+
+### 5.2 `stores/devbox.ts`：视图状态本身就是产品体验的一部分
+
+入口：`reference/sealos/frontend/providers/devbox/stores/devbox.ts`
+
+几个关键点：
+
+- `devboxList` 与 `devboxDetail` 分开维护，但 monitor / status 会在 store 层统一补齐
+- `setDevboxList()` 会保留旧 monitor 数据，避免列表刷新时图表闪烁
+- `setDevboxDetail()` 在读取详情后会继续补 SSH 配置与 pod uptime
+- `intervalLoadPods()` 会同步更新 detail 与 list 的状态，确保页面不分裂
+
+结论：**DevBox 把“列表页和详情页状态一致”当作 store 层责任，而不是页面自己凑。**
+
+### 5.3 `useControlDevbox.tsx`：操作成功后的多次 refetch 是刻意设计
+
+入口：`reference/sealos/frontend/providers/devbox/hooks/useControlDevbox.tsx`
+
+`refetchThreeTimes()` 非常值得注意：
+
+- start / restart 成功后，不是只刷一次
+- 而是立刻刷 + 3 秒后再刷 + 再 3 秒后再刷
+
+这说明 DevBox 默认接受 Kubernetes 资源状态变化有传播延迟，UI 需要主动“追上真实状态”。
+
+### 5.4 BFF 路由：后端负责把 Kubernetes 资源转成工作台对象
+
+入口：
+
+- `app/api/getDevboxList/route.ts`
+- `app/api/getDevboxByName/route.ts`
+- `app/api/startDevbox/route.ts`
+- `app/api/shutdownDevbox/route.ts`
+- `app/api/restartDevbox/route.ts`
+
+总结：
+
+- `getDevboxList` 负责把 CRD + 模板库信息合成列表项
+- `getDevboxByName` 负责把 devbox / ingress / service / configmap / pvc 合成 detail 对象
+- `startDevbox` / `shutdownDevbox` 不只改状态，还会同步恢复或暂停 ingress class
+- `restartDevbox` 直接删 pod，而不是先做“停止再启动”的双阶段前端流程
+
+这也是为什么 DevBox 前端可以理直气壮地做“动作控制台”：后端已经把底层资源语义收敛成产品动作了。
+
 ## 4. 关键可复用的“DevBox 规则”（给 Agent Hub 对齐用）
 
 这部分是把上面的细节提炼成可以落地的规则，便于 Agent Hub 在后续迭代时统一执行。
@@ -330,7 +427,22 @@ Header 的 back 行为与来源耦合：
 - Overview 布局要像“控制面板”，而不是堆卡片
 - 网络可用性必须显性反馈（可访问/准备中 + 教程 Tooltip）
 
-## 5. Agent Hub 对齐清单（建议）
+### 4.6 前后端状态规则
+
+- 列表页、详情页、操作按钮必须共享同一状态语义
+- 成功操作后要考虑真实状态传播延迟，必要时主动多次刷新
+- 页面动作名尽量直接使用产品工作流语义，而不是底层资源术语
+
+## 6. Agent Hub 对齐落地映射
+
+本次 Agent Hub 重构最终采用了以下映射策略：
+
+- 列表页：保留 Agent 业务特有动作，但把 Header、表头、行容器、空态统一为 DevBox 首页语法
+- 模板页：没有照搬 DevBox 的 public/private 数据结构，而是用 Agent 模板的 active/beta/category 视图去复刻其左分类 + 右内容的工作流骨架
+- 创建页：沿用 Agent 模板与 AIProxy 配置语义，但严格收敛到 `左辅助轨 + 右固定宽表单流`
+- 详情页：没有强行伪造 DevBox 的 release/network 数据模型，而是把 Agent 的运行状态、接入信息、资源规格、能力状态重组为 DevBox 式 overview 工作台
+
+## 7. Agent Hub 对齐清单（建议）
 
 如果 Agent Hub 要“严格对齐 DevBox”，建议按优先级执行：
 

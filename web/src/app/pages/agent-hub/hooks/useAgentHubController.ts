@@ -1,602 +1,680 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createAgent,
   createClusterContext,
   deleteAgent,
-  deriveAIProxyModelBaseURL,
   ensureAIProxyToken,
   getClusterInfo,
   getCreateBlueprint,
+  getSystemConfig,
+  listAgentTemplates,
   listAgents,
   pauseAgent,
   runAgent,
-  updateAgent,
-} from '../../../../api'
+  updateAgentRuntime,
+  updateAgentSettings,
+} from "../../../../api";
 import {
-  applyTemplateToBlueprint,
-  resolveTemplateById,
-} from '../../../../domains/agents/templates'
-import {
+  createBlueprintFromAgentItem,
   ensureDns1035Name,
   mapBackendAgentsToListItems,
-} from '../../../../domains/agents/mappers'
+} from "../../../../domains/agents/mappers";
+import {
+  getRequiredTemplateSettingError,
+  readBlueprintSettingValue,
+} from "../../../../domains/agents/blueprintFields";
+import {
+  createEmptyBlueprint,
+  findTemplateById,
+  getDefaultModelOption,
+  hydrateTemplateCatalog,
+  indexTemplatesById,
+} from "../../../../domains/agents/templates";
 import type {
   AgentBlueprint,
+  AgentContract,
+  AgentHubRegion,
   AgentListItem,
-  AgentTemplateId,
+  AgentTemplateDefinition,
   ClusterContext,
   ClusterInfo,
+  SystemConfig,
   WorkspaceAIProxyToken,
-} from '../../../../domains/agents/types'
-import { getSealosSession } from '../../../../sealosSdk'
+} from "../../../../domains/agents/types";
+import { getSealosSession } from "../../../../sealosSdk";
 
-const WORKSPACE_AIPROXY_TOKEN_NAME = 'Agent-Hub'
-const INITIAL_LOAD_CACHE_TTL_MS = 2000
-const WORKSPACE_TOKEN_RETRY_COOLDOWN_MS = 30_000
+const WORKSPACE_AIPROXY_TOKEN_NAME = "Agent-Hub";
+const WORKSPACE_TOKEN_RETRY_COOLDOWN_MS = 30_000;
 
-type InitialLoadSnapshot = {
-  clusterContext: ClusterContext
-  clusterInfo: ClusterInfo
-  items: AgentListItem[]
-}
+type LoadedSnapshot = {
+  clusterContext: ClusterContext;
+  clusterInfo: ClusterInfo;
+  templates: AgentTemplateDefinition[];
+  items: AgentListItem[];
+  systemConfig: SystemConfig;
+};
 
-let initialLoadPromise: Promise<InitialLoadSnapshot> | null = null
-let initialLoadCache: InitialLoadSnapshot | null = null
-let initialLoadCacheAt = 0
-let clusterContextCache: ClusterContext | null = null
-let clusterContextPromise: Promise<ClusterContext> | null = null
-let workspaceTokenCache: WorkspaceAIProxyToken | null = null
-let workspaceTokenPromise: Promise<WorkspaceAIProxyToken | null> | null = null
-let workspaceTokenFailureAt = 0
-
-const toWorkspaceAIProxyToken = (payload: any): WorkspaceAIProxyToken | null => {
-  if (!payload?.token) {
-    return null
+const toWorkspaceAIProxyToken = (
+  payload: unknown,
+): WorkspaceAIProxyToken | null => {
+  const source = payload as {
+    token?: { id?: number; name?: string; key?: string; status?: number };
+    existed?: boolean;
+  };
+  if (!source?.token) {
+    return null;
   }
 
   return {
-    id: Number(payload.token.id || 0),
-    name: String(payload.token.name || ''),
-    key: String(payload.token.key || ''),
-    status: Number(payload.token.status || 0),
-    existed: Boolean(payload.existed),
-  }
-}
-
-const applyInitialLoadCache = (snapshot: InitialLoadSnapshot) => {
-  initialLoadCache = snapshot
-  initialLoadCacheAt = Date.now()
-  return snapshot
-}
-
-const readInitialLoadCache = () => {
-  if (!initialLoadCache) {
-    return null
-  }
-  if (Date.now() - initialLoadCacheAt > INITIAL_LOAD_CACHE_TTL_MS) {
-    initialLoadCache = null
-    return null
-  }
-  return initialLoadCache
-}
-
-const readStoredClusterContext = () => {
-  try {
-    const context = createClusterContext(null)
-    clusterContextCache = context
-    return context
-  } catch {
-    return null
-  }
-}
-
-const resolveCachedClusterContext = async () => {
-  if (clusterContextCache?.kubeconfig && clusterContextCache.namespace && clusterContextCache.server) {
-    return clusterContextCache
-  }
-
-  const storedContext = readStoredClusterContext()
-  if (storedContext) {
-    return storedContext
-  }
-
-  if (clusterContextPromise) {
-    return clusterContextPromise
-  }
-
-  clusterContextPromise = getSealosSession()
-    .catch(() => null)
-    .then((session) => {
-      const context = createClusterContext(session)
-      clusterContextCache = context
-      return context
-    })
-    .finally(() => {
-      clusterContextPromise = null
-    })
-
-  return clusterContextPromise
-}
-
-const fetchInitialLoadSnapshot = async (): Promise<InitialLoadSnapshot> => {
-  const cached = readInitialLoadCache()
-  if (cached) {
-    return cached
-  }
-
-  if (initialLoadPromise) {
-    return initialLoadPromise
-  }
-
-  initialLoadPromise = (async () => {
-    const nextClusterContext = await resolveCachedClusterContext()
-    const [nextClusterInfo, response] = await Promise.all([
-      getClusterInfo(nextClusterContext),
-      listAgents(nextClusterContext),
-    ])
-    const mappedItems = mapBackendAgentsToListItems(response?.items || [], nextClusterInfo)
-
-    return applyInitialLoadCache({
-      clusterContext: nextClusterContext,
-      clusterInfo: nextClusterInfo,
-      items: mappedItems,
-    })
-  })().finally(() => {
-    initialLoadPromise = null
-  })
-
-  return initialLoadPromise
-}
+    id: Number(source.token.id || 0),
+    name: String(source.token.name || ""),
+    key: String(source.token.key || ""),
+    status: Number(source.token.status || 0),
+    existed: Boolean(source.existed),
+  };
+};
 
 export function useAgentHubController() {
-  const [items, setItems] = useState<AgentListItem[]>([])
-  const [clusterInfo, setClusterInfo] = useState<ClusterInfo | null>(null)
-  const [clusterContext, setClusterContext] = useState<ClusterContext | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [message, setMessage] = useState('')
-  const [workspaceAIProxyToken, setWorkspaceAIProxyToken] = useState<WorkspaceAIProxyToken | null>(null)
-  const refreshTimerRef = useRef<number | null>(null)
-  const initialLoadRef = useRef(false)
+  const [items, setItems] = useState<AgentListItem[]>([]);
+  const [templates, setTemplates] = useState<AgentTemplateDefinition[]>([]);
+  const [clusterInfo, setClusterInfo] = useState<ClusterInfo | null>(null);
+  const [clusterContext, setClusterContext] = useState<ClusterContext | null>(
+    null,
+  );
+  const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [workspaceAIProxyToken, setWorkspaceAIProxyToken] =
+    useState<WorkspaceAIProxyToken | null>(null);
+  const refreshTimerRef = useRef<number | null>(null);
+  const workspaceTokenPromiseRef =
+    useRef<Promise<WorkspaceAIProxyToken | null> | null>(null);
+  const workspaceTokenFailureAtRef = useRef(0);
 
-  const resolveClusterContext = useCallback(async () => {
-    if (clusterContext?.kubeconfig && clusterContext.namespace && clusterContext.server) {
-      clusterContextCache = clusterContext
-      return clusterContext
-    }
-
-    return resolveCachedClusterContext()
-  }, [clusterContext])
-
-  const hydrateWorkspaceToken = useCallback(
-    async (context: ClusterContext) => {
-      if (workspaceAIProxyToken?.key) return workspaceAIProxyToken
-      if (workspaceTokenCache?.key) {
-        setWorkspaceAIProxyToken(workspaceTokenCache)
-        return workspaceTokenCache
-      }
-
-      if (workspaceTokenPromise) {
-        const token = await workspaceTokenPromise
-        if (token?.key) {
-          setWorkspaceAIProxyToken(token)
-        }
-        return token
-      }
-
-      if (workspaceTokenFailureAt && Date.now() - workspaceTokenFailureAt < WORKSPACE_TOKEN_RETRY_COOLDOWN_MS) {
-        return null
-      }
-
-      try {
-        workspaceTokenPromise = ensureAIProxyToken(context, { name: WORKSPACE_AIPROXY_TOKEN_NAME })
-          .then((payload) => toWorkspaceAIProxyToken(payload))
-          .then((ensuredToken) => {
-            if (ensuredToken?.key) {
-              workspaceTokenCache = ensuredToken
-            }
-            return ensuredToken
-          })
-          .catch((error) => {
-            workspaceTokenFailureAt = Date.now()
-            console.warn('[aiproxy] ensure workspace token failed', {
-              message: error instanceof Error ? error.message : String(error || ''),
-            })
-            return null
-          })
-          .finally(() => {
-            workspaceTokenPromise = null
-          })
-
-        const ensuredToken = await workspaceTokenPromise
-        if (ensuredToken?.key) {
-          setWorkspaceAIProxyToken(ensuredToken)
-        }
-        return ensuredToken
-      } catch (error) {
-        return null
-      }
-    },
-    [workspaceAIProxyToken],
-  )
-
-  const workspaceAIProxyModelBaseURL = useMemo(
-    () => deriveAIProxyModelBaseURL(clusterContext?.server || clusterInfo?.server || ''),
-    [clusterContext?.server, clusterInfo?.server],
-  )
+  const templatesById = useMemo(
+    () => indexTemplatesById(templates),
+    [templates],
+  );
+  const workspaceRegion: AgentHubRegion = systemConfig?.region || "us";
+  const workspaceAIProxyModelBaseURL = systemConfig?.aiProxyModelBaseURL || "";
 
   const getAgentLabel = useCallback((aliasName: string, agentName: string) => {
-    const displayName = aliasName.trim()
+    const displayName = aliasName.trim();
     if (!displayName || displayName === agentName) {
-      return agentName
+      return agentName;
     }
-    return `${displayName} (${agentName})`
-  }, [])
+    return `${displayName} (${agentName})`;
+  }, []);
+
+  const resolveClusterContext = useCallback(async () => {
+    if (
+      clusterContext?.kubeconfig &&
+      clusterContext.namespace &&
+      clusterContext.server
+    ) {
+      return clusterContext;
+    }
+
+    try {
+      return createClusterContext(null);
+    } catch {
+      const session = await getSealosSession().catch(() => null);
+      return createClusterContext(session);
+    }
+  }, [clusterContext]);
 
   const ensureWorkspaceTokenReady = useCallback(
     async (context: ClusterContext) => {
-      const existingToken = workspaceAIProxyToken?.key ? workspaceAIProxyToken : null
-      if (existingToken) {
-        return existingToken
+      if (workspaceAIProxyToken?.key) {
+        return workspaceAIProxyToken;
       }
 
-      const ensuredToken = toWorkspaceAIProxyToken(
-        await ensureAIProxyToken(context, { name: WORKSPACE_AIPROXY_TOKEN_NAME }),
-      )
-
-      if (!ensuredToken?.key) {
-        throw new Error('未获取到 Agent-Hub AIProxy Key，暂时无法配置 Hermes Agent')
+      if (workspaceTokenPromiseRef.current) {
+        const token = await workspaceTokenPromiseRef.current;
+        if (token?.key) {
+          setWorkspaceAIProxyToken(token);
+        }
+        return token;
       }
 
-      setWorkspaceAIProxyToken(ensuredToken)
-      return ensuredToken
+      if (
+        workspaceTokenFailureAtRef.current &&
+        Date.now() - workspaceTokenFailureAtRef.current <
+          WORKSPACE_TOKEN_RETRY_COOLDOWN_MS
+      ) {
+        return null;
+      }
+
+      workspaceTokenPromiseRef.current = ensureAIProxyToken(context, {
+        name: WORKSPACE_AIPROXY_TOKEN_NAME,
+      })
+        .then((payload) => toWorkspaceAIProxyToken(payload))
+        .catch((error) => {
+          workspaceTokenFailureAtRef.current = Date.now();
+          const detail = (() => {
+            const payload = (error as { payload?: unknown })?.payload as
+              | { error?: { details?: { upstreamMessage?: string; reason?: string } }; message?: string }
+              | undefined;
+            return (
+              payload?.error?.details?.upstreamMessage ||
+              payload?.error?.details?.reason ||
+              payload?.message ||
+              ""
+            );
+          })();
+          const message =
+            error instanceof Error ? error.message : String(error || "");
+          const nextMessage = detail ? `${message}（${detail}）` : message;
+          setMessage(nextMessage || "读取 AI-Proxy 密钥失败");
+          console.warn("[aiproxy] ensure workspace token failed", {
+            message,
+            detail,
+            payload: (error as { payload?: unknown })?.payload,
+          });
+          return null;
+        })
+        .finally(() => {
+          workspaceTokenPromiseRef.current = null;
+        });
+
+      const token = await workspaceTokenPromiseRef.current;
+      if (token?.key) {
+        setWorkspaceAIProxyToken(token);
+      }
+      return token;
     },
     [workspaceAIProxyToken],
-  )
+  );
 
   const loadAll = useCallback(
-    async ({ ensureWorkspaceToken = false }: { ensureWorkspaceToken?: boolean } = {}) => {
-      setLoading(true)
+    async ({
+      ensureWorkspaceToken = false,
+    }: {
+      ensureWorkspaceToken?: boolean;
+    } = {}): Promise<LoadedSnapshot | null> => {
+      setLoading(true);
 
       try {
-        const nextClusterContext = await resolveClusterContext()
-        const [nextClusterInfo, response] = await Promise.all([
+        const nextClusterContext = await resolveClusterContext();
+        const [
+          nextClusterInfo,
+          templatePayload,
+          nextSystemConfig,
+          agentsPayload,
+        ] = await Promise.all([
           getClusterInfo(nextClusterContext),
+          listAgentTemplates(),
+          getSystemConfig(),
           listAgents(nextClusterContext),
-        ])
-        const mappedItems = mapBackendAgentsToListItems(response?.items || [], nextClusterInfo)
+        ]);
 
-        setClusterContext(nextClusterContext)
-        setClusterInfo(nextClusterInfo)
-        setItems(mappedItems)
-        applyInitialLoadCache({
-          clusterContext: nextClusterContext,
-          clusterInfo: nextClusterInfo,
-          items: mappedItems,
-        })
+        const nextTemplates = hydrateTemplateCatalog(templatePayload.items);
+        const nextItems = mapBackendAgentsToListItems(
+          agentsPayload?.items || [],
+          nextTemplates,
+          nextClusterInfo,
+        );
 
-        setMessage('')
+        setClusterContext(nextClusterContext);
+        setClusterInfo(nextClusterInfo);
+        setTemplates(nextTemplates);
+        setItems(nextItems);
+        setSystemConfig(nextSystemConfig);
+        setMessage("");
 
         if (ensureWorkspaceToken) {
-          void hydrateWorkspaceToken(nextClusterContext)
+          void ensureWorkspaceTokenReady(nextClusterContext);
         }
+
+        return {
+          clusterContext: nextClusterContext,
+          clusterInfo: nextClusterInfo,
+          templates: nextTemplates,
+          items: nextItems,
+          systemConfig: nextSystemConfig,
+        };
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : '加载失败')
+        setMessage(error instanceof Error ? error.message : "加载失败");
+        return null;
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     },
-    [hydrateWorkspaceToken, resolveClusterContext],
-  )
+    [ensureWorkspaceTokenReady, resolveClusterContext],
+  );
 
-  const loadItemsSilently = useCallback(
-    async ({ ensureWorkspaceToken = false }: { ensureWorkspaceToken?: boolean } = {}) => {
-      try {
-        const nextClusterContext = await resolveClusterContext()
-        const nextClusterInfo = clusterInfo || (await getClusterInfo(nextClusterContext))
-        const response = await listAgents(nextClusterContext)
-        const mappedItems = mapBackendAgentsToListItems(response?.items || [], nextClusterInfo)
+  const loadItemsSilently = useCallback(async () => {
+    try {
+      const nextClusterContext = await resolveClusterContext();
+      const nextClusterInfo =
+        clusterInfo || (await getClusterInfo(nextClusterContext));
+      const nextTemplates =
+        templates.length > 0
+          ? templates
+          : hydrateTemplateCatalog((await listAgentTemplates()).items);
+      const agentsPayload = await listAgents(nextClusterContext);
+      const nextItems = mapBackendAgentsToListItems(
+        agentsPayload?.items || [],
+        nextTemplates,
+        nextClusterInfo,
+      );
 
-        setClusterContext(nextClusterContext)
-        setClusterInfo(nextClusterInfo)
-        setItems((prev) => {
-          if (prev.length === mappedItems.length) {
-            const prevSig = prev.map((it) => `${it.id}:${it.status}:${it.ready}:${it.updatedAt}:${it.bootstrapPhase}:${it.bootstrapMessage}`).join('|')
-            const nextSig = mappedItems.map((it) => `${it.id}:${it.status}:${it.ready}:${it.updatedAt}:${it.bootstrapPhase}:${it.bootstrapMessage}`).join('|')
-            if (prevSig === nextSig) {
-              return prev
-            }
-          }
-          return mappedItems
-        })
-        applyInitialLoadCache({
-          clusterContext: nextClusterContext,
-          clusterInfo: nextClusterInfo,
-          items: mappedItems,
-        })
+      setClusterContext(nextClusterContext);
+      setClusterInfo(nextClusterInfo);
+      setTemplates(nextTemplates);
+      setItems((current) => {
+        const currentSignature = current
+          .map(
+            (item) =>
+              `${item.name}:${item.status}:${item.ready}:${item.updatedAt}:${item.bootstrapPhase}:${item.bootstrapMessage}`,
+          )
+          .join("|");
+        const nextSignature = nextItems
+          .map(
+            (item) =>
+              `${item.name}:${item.status}:${item.ready}:${item.updatedAt}:${item.bootstrapPhase}:${item.bootstrapMessage}`,
+          )
+          .join("|");
+        return currentSignature === nextSignature ? current : nextItems;
+      });
 
-        if (ensureWorkspaceToken) {
-          void hydrateWorkspaceToken(nextClusterContext)
-        }
-      } catch (error) {
-        console.warn('[agent-hub] silent refresh failed', error)
-      }
-    },
-    [clusterInfo, hydrateWorkspaceToken, resolveClusterContext],
-  )
-
-  useEffect(() => {
-    if (initialLoadRef.current) return
-    initialLoadRef.current = true
-
-    let disposed = false
-    setLoading(true)
-
-    void fetchInitialLoadSnapshot()
-      .then((snapshot) => {
-        if (disposed) return
-        setClusterContext(snapshot.clusterContext)
-        setClusterInfo(snapshot.clusterInfo)
-        setItems(snapshot.items)
-        setMessage('')
-        void hydrateWorkspaceToken(snapshot.clusterContext)
-      })
-      .catch((error) => {
-        if (disposed) return
-        setMessage(error instanceof Error ? error.message : '加载失败')
-      })
-      .finally(() => {
-        if (disposed) return
-        setLoading(false)
-      })
-
-    return () => {
-      disposed = true
+      return nextItems;
+    } catch (error) {
+      console.warn("[agent-hub] silent refresh failed", error);
+      return null;
     }
-  }, [hydrateWorkspaceToken])
+  }, [clusterInfo, resolveClusterContext, templates]);
 
   useEffect(() => {
-    const hasPendingItems = items.some((item) => item.status === 'creating' || (item.status === 'running' && !item.ready))
+    void loadAll({ ensureWorkspaceToken: true });
+  }, [loadAll]);
+
+  useEffect(() => {
+    const hasPendingItems = items.some(
+      (item) =>
+        item.status === "creating" ||
+        (item.status === "running" && !item.ready),
+    );
 
     if (!hasPendingItems) {
       if (refreshTimerRef.current) {
-        window.clearInterval(refreshTimerRef.current)
-        refreshTimerRef.current = null
+        window.clearInterval(refreshTimerRef.current);
+        refreshTimerRef.current = null;
       }
-      return
+      return;
     }
 
     if (!refreshTimerRef.current) {
       refreshTimerRef.current = window.setInterval(() => {
-        void loadItemsSilently()
-      }, 3000)
+        void loadItemsSilently();
+      }, 3000);
     }
 
     return () => {
       if (refreshTimerRef.current) {
-        window.clearInterval(refreshTimerRef.current)
-        refreshTimerRef.current = null
+        window.clearInterval(refreshTimerRef.current);
+        refreshTimerRef.current = null;
       }
-    }
-  }, [items, loadItemsSilently])
+    };
+  }, [items, loadItemsSilently]);
+
+  const primeItem = useCallback((item: AgentListItem) => {
+    setItems((current) => {
+      const nextIndex = current.findIndex((entry) => entry.name === item.name);
+      if (nextIndex === -1) {
+        return [item, ...current];
+      }
+
+      const nextItems = [...current];
+      nextItems[nextIndex] = item;
+      return nextItems;
+    });
+  }, []);
 
   const prepareCreateBlueprint = useCallback(
-    async (templateId: AgentTemplateId): Promise<AgentBlueprint> => {
-      if (!clusterContext) {
-        throw new Error('缺少集群上下文，无法创建 Agent。')
-      }
+    async (templateId: string): Promise<AgentBlueprint> => {
+      const currentContext = clusterContext || (await resolveClusterContext());
+      const template = templatesById[templateId] || null;
 
-      const template = resolveTemplateById(templateId)
+      if (!template) {
+        throw new Error("没有找到对应的模板目录项。");
+      }
       if (!template.backendSupported) {
-        throw new Error(template.createDisabledReason || '当前模板暂未接入后端管理 API。')
+        throw new Error(
+          template.createDisabledReason || "当前模板暂未接入后端管理 API。",
+        );
       }
 
-      const seed = getCreateBlueprint(clusterContext, undefined, [])
-      const safeAppName = ensureDns1035Name(seed.appName, 'agent')
-      const ensuredWorkspaceToken = await ensureWorkspaceTokenReady(clusterContext).catch(() => null)
+      const seed = getCreateBlueprint(currentContext, undefined, []);
+      const defaultModelOption = getDefaultModelOption(template);
+      if (template.modelOptions.length > 0 && !workspaceAIProxyModelBaseURL) {
+        throw new Error("系统未提供 AI-Proxy 模型地址，当前模板无法创建。");
+      }
+
+      const workspaceToken = defaultModelOption
+        ? await ensureWorkspaceTokenReady(currentContext)
+        : null;
 
       return {
-        ...applyTemplateToBlueprint(
-          {
-            ...seed,
-            appName: safeAppName,
-            aliasName: '',
-            state: seed.state === 'Paused' ? 'Paused' : 'Running',
-            serviceType: 'ClusterIP',
-            protocol: 'TCP',
-          },
-          templateId,
-        ),
-        modelProvider: 'custom',
+        ...createEmptyBlueprint(),
+        appName: ensureDns1035Name(seed.appName, "agent"),
+        aliasName: "",
+        namespace: currentContext.namespace,
+        image: template.image,
+        productType: template.id,
+        state: seed.state === "Paused" ? "Paused" : "Running",
+        runtimeClassName: seed.runtimeClassName,
+        storageLimit: seed.storageLimit,
+        port: template.port,
+        cpu: "2000m",
+        memory: "4096Mi",
+        serviceType: "ClusterIP",
+        protocol: "TCP",
+        user: template.user || seed.user,
+        workingDir: template.workingDir || seed.workingDir,
+        argsText: template.defaultArgs.join(" "),
+        modelProvider: defaultModelOption?.provider || "",
         modelBaseURL: workspaceAIProxyModelBaseURL,
-        hasModelAPIKey: Boolean(ensuredWorkspaceToken?.key),
-      }
+        model: defaultModelOption?.value || "",
+        hasModelAPIKey: Boolean(workspaceToken?.key),
+        keySource: workspaceToken?.key ? "workspace-aiproxy" : "unset",
+      };
     },
-    [clusterContext, ensureWorkspaceTokenReady, workspaceAIProxyModelBaseURL],
-  )
+    [
+      clusterContext,
+      ensureWorkspaceTokenReady,
+      resolveClusterContext,
+      templatesById,
+      workspaceAIProxyModelBaseURL,
+    ],
+  );
 
   const buildCreatePayload = useCallback(
     (source: AgentBlueprint) => ({
-      'template-id': source.productType,
-      'agent-name': ensureDns1035Name(source.appName, 'agent'),
-      'agent-cpu': source.cpu,
-      'agent-memory': source.memory,
-      'agent-storage': source.storageLimit,
-      'agent-model': source.model.trim(),
-      'agent-alias-name': source.aliasName.trim(),
+      "template-id": source.productType,
+      "agent-name": ensureDns1035Name(source.appName, "agent"),
+      "agent-cpu": source.cpu,
+      "agent-memory": source.memory,
+      "agent-storage": source.storageLimit,
+      "agent-alias-name": source.aliasName.trim(),
     }),
     [],
-  )
+  );
 
-  const buildUpdatePayload = useCallback((source: AgentBlueprint) => ({
-    'agent-cpu': source.cpu,
-    'agent-memory': source.memory,
-    'agent-storage': source.storageLimit,
-    'agent-model-provider': source.modelProvider.trim(),
-    'agent-model-baseurl': source.modelBaseURL.trim(),
-    'agent-model': source.model.trim(),
-    'agent-alias-name': source.aliasName.trim(),
-  }), [])
+  const buildRuntimeUpdatePayload = useCallback(
+    (source: AgentBlueprint) => ({
+      "agent-cpu": source.cpu,
+      "agent-memory": source.memory,
+      "agent-storage": source.storageLimit,
+    }),
+    [],
+  );
+
+  const buildSettingsPayload = useCallback(
+    (template: AgentTemplateDefinition, source: AgentBlueprint) =>
+      template.settings.agent.reduce<Record<string, string>>(
+        (result, field) => {
+          if (field.readOnly && field.binding.kind === "derived") {
+            return result;
+          }
+          result[field.key] = readBlueprintSettingValue(source, field).trim();
+          return result;
+        },
+        {},
+      ),
+    [],
+  );
+
+  const buildSettingsUpdatePayload = useCallback(
+    (template: AgentTemplateDefinition, source: AgentBlueprint) => ({
+      "agent-alias-name": source.aliasName.trim(),
+      settings: buildSettingsPayload(template, source),
+    }),
+    [buildSettingsPayload],
+  );
 
   const createAgentFromBlueprint = useCallback(
     async (blueprint: AgentBlueprint) => {
-      if (!clusterContext) {
-        throw new Error('缺少集群上下文，无法提交')
-      }
+      const currentContext = clusterContext || (await resolveClusterContext());
+      const aliasName = blueprint.aliasName.trim();
+      const template = templatesById[blueprint.productType];
 
-      const aliasName = blueprint.aliasName.trim()
+      if (!template) {
+        throw new Error("没有找到对应的模板目录项。");
+      }
       if (!aliasName) {
-        throw new Error('请填写 Agent 别名')
+        throw new Error("请填写 Agent 别名");
+      }
+      const requiredSettingError = getRequiredTemplateSettingError(
+        blueprint,
+        template.settings.agent,
+      );
+      if (requiredSettingError) {
+        throw new Error(requiredSettingError);
       }
 
-      const model = blueprint.model.trim()
-      if (!model) {
-        throw new Error('请选择模型')
-      }
-
-      setSubmitting(true)
-
+      setSubmitting(true);
       try {
-        const nextBlueprint = {
-          ...blueprint,
-          appName: ensureDns1035Name(blueprint.appName, 'agent'),
-          aliasName,
-          model,
-          modelProvider: 'custom',
-          modelBaseURL: workspaceAIProxyModelBaseURL || blueprint.modelBaseURL,
+        if (template.modelOptions.length > 0) {
+          await ensureWorkspaceTokenReady(currentContext);
         }
 
-        const response = await createAgent(buildCreatePayload(nextBlueprint), clusterContext)
-        const createdAgentName = response?.agent?.agentName || nextBlueprint.appName
-        const createdAliasName = response?.agent?.aliasName || nextBlueprint.aliasName
+        const response = await createAgent(
+          {
+            ...buildCreatePayload({
+              ...blueprint,
+              appName: ensureDns1035Name(blueprint.appName, "agent"),
+              aliasName,
+            }),
+            settings: buildSettingsPayload(template, blueprint),
+          },
+          currentContext,
+        );
 
-        setMessage(`已创建 ${getAgentLabel(createdAliasName, createdAgentName)}`)
-        await loadAll()
+        const createdAgent = response?.agent || null;
+        const snapshot = await loadAll();
+        const createdItem =
+          snapshot?.items.find(
+            (item) => item.name === createdAgent?.core?.name,
+          ) ||
+          (createdAgent && templates.length
+            ? mapBackendAgentsToListItems(
+                [createdAgent as AgentContract],
+                templates,
+                snapshot?.clusterInfo || clusterInfo,
+              )[0]
+            : null) ||
+          null;
+
+        setMessage(
+          `已创建 ${getAgentLabel(aliasName, createdAgent?.core?.name || blueprint.appName)}`,
+        );
 
         return {
-          agentName: createdAgentName,
-          aliasName: createdAliasName,
+          agentName: createdAgent?.core?.name || blueprint.appName,
+          aliasName: aliasName,
+          item: createdItem,
           response,
-        }
+        };
       } finally {
-        setSubmitting(false)
+        setSubmitting(false);
       }
     },
     [
       buildCreatePayload,
+      buildSettingsPayload,
+      clusterContext,
+      clusterInfo,
+      ensureWorkspaceTokenReady,
+      getAgentLabel,
+      loadAll,
+      resolveClusterContext,
+      templates,
+      templatesById,
+    ],
+  );
+
+  const updateAgentRuntimeFromBlueprint = useCallback(
+    async (item: AgentListItem, blueprint: AgentBlueprint) => {
+      const currentContext = clusterContext || (await resolveClusterContext());
+      const cpu = blueprint.cpu.trim();
+      const memory = blueprint.memory.trim();
+      const storage = blueprint.storageLimit.trim();
+
+      if (!cpu) {
+        throw new Error("请填写 CPU");
+      }
+      if (!memory) {
+        throw new Error("请填写内存");
+      }
+      if (!storage) {
+        throw new Error("请填写存储");
+      }
+
+      setSubmitting(true);
+      try {
+        const response = await updateAgentRuntime(
+          item.name,
+          buildRuntimeUpdatePayload({
+            ...blueprint,
+            appName: ensureDns1035Name(blueprint.appName, "agent"),
+          }),
+          currentContext,
+        );
+
+        setMessage(
+          `已更新 ${getAgentLabel(item.aliasName, item.name)} 的运行时设置`,
+        );
+        await loadAll();
+
+        return {
+          agentName: item.name,
+          response,
+        };
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [
+      buildRuntimeUpdatePayload,
       clusterContext,
       getAgentLabel,
       loadAll,
-      workspaceAIProxyModelBaseURL,
+      resolveClusterContext,
     ],
-  )
+  );
 
-  const updateAgentFromBlueprint = useCallback(
+  const updateAgentSettingsFromBlueprint = useCallback(
     async (item: AgentListItem, blueprint: AgentBlueprint) => {
-      if (!clusterContext) {
-        throw new Error('缺少集群上下文，无法提交')
-      }
+      const currentContext = clusterContext || (await resolveClusterContext());
+      const aliasName = blueprint.aliasName.trim();
+      const template = templatesById[item.templateId];
 
-      const aliasName = blueprint.aliasName.trim()
+      if (!template) {
+        throw new Error("没有找到对应的模板目录项。");
+      }
       if (!aliasName) {
-        throw new Error('请填写 Agent 别名')
+        throw new Error("请填写 Agent 别名");
+      }
+      const requiredSettingError = getRequiredTemplateSettingError(
+        blueprint,
+        template.settings.agent,
+      );
+      if (requiredSettingError) {
+        throw new Error(requiredSettingError);
       }
 
-      const model = blueprint.model.trim()
-      if (!model) {
-        throw new Error('请选择模型')
-      }
-
-      const modelProvider = blueprint.modelProvider.trim()
-      const modelBaseURL = blueprint.modelBaseURL.trim()
-
-      if (!modelProvider) {
-        throw new Error('请填写 Hermes Provider')
-      }
-
-      if (!modelBaseURL) {
-        throw new Error('请填写模型 Base URL')
-      }
-
-      setSubmitting(true)
-
+      setSubmitting(true);
       try {
-        const nextBlueprint = {
-          ...blueprint,
-          appName: ensureDns1035Name(blueprint.appName, 'agent'),
-          aliasName,
-          model,
-          modelProvider,
-          modelBaseURL,
+        if (template.modelOptions.length > 0) {
+          await ensureWorkspaceTokenReady(currentContext);
         }
+        const response = await updateAgentSettings(
+          item.name,
+          buildSettingsUpdatePayload(template, {
+            ...blueprint,
+            appName: ensureDns1035Name(blueprint.appName, "agent"),
+            aliasName,
+          }),
+          currentContext,
+        );
 
-        const response = await updateAgent(item.name, buildUpdatePayload(nextBlueprint), clusterContext)
-        const updatedAgentName = response?.agent?.agentName || item.name
-        const updatedAliasName = response?.agent?.aliasName || nextBlueprint.aliasName
-
-        setMessage(`已更新 ${getAgentLabel(updatedAliasName, updatedAgentName)}`)
-        await loadAll()
+        setMessage(
+          `已更新 ${getAgentLabel(aliasName, item.name)} 的 Agent 设置`,
+        );
+        await loadAll();
 
         return {
-          agentName: updatedAgentName,
-          aliasName: updatedAliasName,
+          agentName: item.name,
+          aliasName,
           response,
-        }
+        };
       } finally {
-        setSubmitting(false)
+        setSubmitting(false);
       }
     },
-    [buildUpdatePayload, clusterContext, getAgentLabel, loadAll],
-  )
+    [
+      buildSettingsUpdatePayload,
+      clusterContext,
+      ensureWorkspaceTokenReady,
+      getAgentLabel,
+      loadAll,
+      resolveClusterContext,
+      templatesById,
+    ],
+  );
 
   const deleteAgentItem = useCallback(
     async (item: AgentListItem) => {
-      if (!clusterContext) {
-        throw new Error('缺少集群上下文，无法删除')
-      }
-
-      setDeleting(true)
-
+      const currentContext = clusterContext || (await resolveClusterContext());
+      setDeleting(true);
       try {
-        await deleteAgent(item.name, clusterContext)
-        setMessage(`已删除 ${getAgentLabel(item.aliasName, item.name)}`)
-        await loadAll()
+        await deleteAgent(item.name, currentContext);
+        setMessage(`已删除 ${getAgentLabel(item.aliasName, item.name)}`);
+        await loadAll();
       } finally {
-        setDeleting(false)
+        setDeleting(false);
       }
     },
-    [clusterContext, getAgentLabel, loadAll],
-  )
+    [clusterContext, getAgentLabel, loadAll, resolveClusterContext],
+  );
 
   const toggleItemState = useCallback(
     async (item: AgentListItem) => {
-      if (!clusterContext) {
-        throw new Error('缺少集群上下文，无法切换运行状态。')
-      }
+      const currentContext = clusterContext || (await resolveClusterContext());
 
-      if (item.status === 'running') {
-        await pauseAgent(item.name, clusterContext)
-        setMessage(`已暂停 ${getAgentLabel(item.aliasName, item.name)}`)
-      } else if (item.status === 'stopped') {
-        await runAgent(item.name, clusterContext)
-        setMessage(`已启动 ${getAgentLabel(item.aliasName, item.name)}`)
+      if (item.status === "running") {
+        await pauseAgent(item.name, currentContext);
+        setMessage(`已暂停 ${getAgentLabel(item.aliasName, item.name)}`);
+      } else if (item.status === "stopped") {
+        await runAgent(item.name, currentContext);
+        setMessage(`已启动 ${getAgentLabel(item.aliasName, item.name)}`);
       } else {
-        return
+        return;
       }
 
-      await loadAll()
+      await loadAll();
     },
-    [clusterContext, getAgentLabel, loadAll],
-  )
+    [clusterContext, getAgentLabel, loadAll, resolveClusterContext],
+  );
 
   const findItemByName = useCallback(
-    (agentName: string) => items.find((item) => item.name === agentName) || null,
+    (agentName: string) =>
+      items.find((item) => item.name === agentName) || null,
     [items],
-  )
+  );
+
+  const findLoadedTemplateById = useCallback(
+    (templateId: string) => findTemplateById(templates, templateId),
+    [templates],
+  );
 
   return {
     items,
+    templates,
+    templatesById,
     clusterInfo,
     clusterContext,
     loading,
@@ -604,16 +682,22 @@ export function useAgentHubController() {
     deleting,
     message,
     setMessage,
+    systemConfig,
     workspaceAIProxyToken,
+    workspaceRegion,
     workspaceAIProxyModelBaseURL,
     loadAll,
     loadItemsSilently,
     prepareCreateBlueprint,
     createAgentFromBlueprint,
-    updateAgentFromBlueprint,
+    updateAgentRuntimeFromBlueprint,
+    updateAgentSettingsFromBlueprint,
     deleteAgentItem,
     toggleItemState,
     ensureWorkspaceTokenReady,
     findItemByName,
-  }
+    findTemplateById: findLoadedTemplateById,
+    primeItem,
+    createBlueprintFromAgentItem,
+  };
 }

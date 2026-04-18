@@ -19,6 +19,7 @@
 
 :root {
   font-family: 'SF Pro Display', 'PingFang SC', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
   line-height: 1.5;
   font-weight: 400;
   color: #18181b;
@@ -41,6 +42,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background: #f4f4f5;
 }
 
 button, input, select, textarea {
@@ -55,7 +57,7 @@ a {
 /* Base Component Utilities */
 @layer components {
   .btn-primary {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-medium text-white transition-all hover:bg-brand-hover active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-brand px-3.5 text-[13px] font-medium text-white transition-all hover:bg-brand-hover active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
   }
 
   .card {
@@ -63,7 +65,7 @@ a {
   }
 
   .input {
-    @apply h-10 w-full rounded-lg border border-border bg-white px-3 text-sm text-text shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all placeholder:text-muted focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/8;
+    @apply w-full rounded-lg border border-border bg-white text-text shadow-[0_1px_2px_rgba(24,24,27,0.04)] transition-all placeholder:text-muted focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-50;
   }
 
   .badge-success {
@@ -71,6 +73,134 @@ a {
   }
 
   .field-input {
-    @apply h-10 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-text shadow-[0_1px_2px_rgba(0,0,0,0.04)] outline-none transition-all placeholder:text-muted focus:border-brand focus:ring-4 focus:ring-brand/8;
+    @apply w-full rounded-lg border border-border bg-white py-2 text-text shadow-[0_1px_2px_rgba(24,24,27,0.04)] outline-none transition-all placeholder:text-muted focus:border-blue-500 focus:ring-4 focus:ring-blue-50;
+  }
+
+  .workbench-card {
+    border: 0.5px solid #e4e4e7;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(24, 24, 27, 0.04);
+  }
+
+  .workbench-card-strong {
+    border: 0.5px solid #e4e4e7;
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(24, 24, 27, 0.04);
+  }
+
+  .workbench-empty {
+    border: 1px dashed #d4d4d8;
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(24, 24, 27, 0.03);
+  }
+
+  .agent-markdown {
+    color: #18181b;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  .agent-markdown > * + * {
+    margin-top: 0.95rem;
+  }
+
+  .agent-markdown h1,
+  .agent-markdown h2,
+  .agent-markdown h3,
+  .agent-markdown h4,
+  .agent-markdown h5,
+  .agent-markdown h6 {
+    color: #111827;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+
+  .agent-markdown h1 {
+    font-size: 1.75rem;
+  }
+
+  .agent-markdown h2 {
+    font-size: 1.45rem;
+  }
+
+  .agent-markdown h3 {
+    font-size: 1.2rem;
+  }
+
+  .agent-markdown p,
+  .agent-markdown li,
+  .agent-markdown blockquote {
+    color: #27272a;
+  }
+
+  .agent-markdown ul,
+  .agent-markdown ol {
+    padding-left: 1.3rem;
+  }
+
+  .agent-markdown li + li {
+    margin-top: 0.35rem;
+  }
+
+  .agent-markdown a {
+    color: #2563eb;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .agent-markdown code {
+    border: 1px solid #e4e4e7;
+    border-radius: 8px;
+    background: #f4f4f5;
+    padding: 0.08rem 0.35rem;
+    font-family: 'SF Mono', 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+  }
+
+  .agent-markdown pre {
+    overflow-x: auto;
+    border: 1px solid #18181b;
+    border-radius: 16px;
+    background: #18181b;
+    padding: 1rem;
+    color: #f4f4f5;
+  }
+
+  .agent-markdown pre code {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+  }
+
+  .agent-markdown blockquote {
+    border-left: 4px solid #d4d4d8;
+    margin: 0;
+    padding-left: 1rem;
+  }
+
+  .agent-markdown table {
+    width: 100%;
+    border-collapse: collapse;
+    overflow: hidden;
+    border-radius: 14px;
+    border: 1px solid #e4e4e7;
+  }
+
+  .agent-markdown th,
+  .agent-markdown td {
+    border-bottom: 1px solid #e4e4e7;
+    padding: 0.75rem 0.85rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .agent-markdown th {
+    background: #f8fafc;
+    color: #111827;
+    font-weight: 600;
   }
 }

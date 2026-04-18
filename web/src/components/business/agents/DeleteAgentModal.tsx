@@ -45,7 +45,7 @@ export function DeleteAgentModal({
         <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
           将会联动删除实例 <span className="font-semibold text-slate-900">{displayName}</span>
           {item?.name ? <span className="text-slate-400">（{item.name}）</span> : null}
-          {' '}对应的 DevBox、Service 和 Ingress。这个操作不可撤销。
+          {' '}相关资源。这个操作不可撤销。
         </p>
       </div>
     </Modal>

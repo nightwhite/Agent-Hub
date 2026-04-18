@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/nightwhite/Agent-Hub/internal/aiproxy"
 	"github.com/nightwhite/Agent-Hub/internal/config"
@@ -22,9 +21,15 @@ func ensureManagedModelAccess(
 	cfg config.Config,
 	factory *kube.Factory,
 	authorization string,
+	requestedProvider string,
+	explicitBaseURL string,
 ) (resolvedModelAccess, error) {
 	managerBaseURL := resolveAIProxyBaseURL(cfg.AIProxyBaseURL, factory.ClusterServer())
-	modelBaseURL := resolveAIProxyModelBaseURL(cfg.AIProxyModelBaseURL, factory.ClusterServer())
+	profile, err := resolveAIProxyHermesProvider(requestedProvider)
+	if err != nil {
+		return resolvedModelAccess{}, err
+	}
+	modelBaseURL := resolveAIProxyProviderBaseURL(firstNonEmpty(explicitBaseURL, cfg.AIProxyModelBaseURL), factory.ClusterServer(), profile.Provider)
 
 	client, err := aiproxy.NewClient(managerBaseURL, nil)
 	if err != nil {
@@ -34,7 +39,7 @@ func ensureManagedModelAccess(
 	token, _, tokenName, err := ensureAgentHubAIProxyToken(
 		ctx,
 		client,
-		strings.TrimSpace(authorization),
+		authorization,
 		factory.Namespace(),
 		"",
 	)
@@ -43,7 +48,7 @@ func ensureManagedModelAccess(
 	}
 
 	return resolvedModelAccess{
-		Provider:  "custom",
+		Provider:  profile.Provider,
 		BaseURL:   modelBaseURL,
 		APIKey:    token.Key,
 		TokenName: tokenName,

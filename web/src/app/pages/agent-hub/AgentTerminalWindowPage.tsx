@@ -1,9 +1,11 @@
 import { LoaderCircle, Terminal as TerminalIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { createClusterContext, getAgent } from '../../../api'
+import { createClusterContext, getAgent, listAgentTemplates } from '../../../api'
+import { APP_NAME, APP_TERMINAL_TITLE } from '../../../branding'
 import { AgentTerminalWorkspace } from '../../../components/business/terminal/AgentTerminalWorkspace'
 import { mapBackendAgentsToListItems } from '../../../domains/agents/mappers'
+import { hydrateTemplateCatalog } from '../../../domains/agents/templates'
 import type { AgentListItem, ClusterContext } from '../../../domains/agents/types'
 import { addSealosAppEventListener, getSealosSession } from '../../../sealosSdk'
 import { useAgentTerminal } from './hooks/useAgentTerminal'
@@ -18,9 +20,13 @@ export function AgentTerminalWindowPage() {
   const [message, setMessage] = useState('')
 
   const displayName = useMemo(
-    () => activeItem?.aliasName || activeItem?.name || activeAgentName || 'Agent Terminal',
+    () => activeItem?.aliasName || activeItem?.name || activeAgentName || APP_TERMINAL_TITLE,
     [activeAgentName, activeItem?.aliasName, activeItem?.name],
   )
+
+  useEffect(() => {
+    document.title = `${displayName} · ${APP_NAME}`
+  }, [displayName])
 
   const {
     markTerminalConnected,
@@ -46,7 +52,7 @@ export function AgentTerminalWindowPage() {
         setClusterContext(nextContext)
       } catch (error) {
         if (!active) return
-        setMessage(error instanceof Error ? error.message : '未能初始化集群上下文')
+        setMessage(error instanceof Error ? error.message : '工作区信息加载失败')
       }
     }
 
@@ -103,14 +109,14 @@ export function AgentTerminalWindowPage() {
       setLoading(true)
 
       try {
+        const templatePayload = await listAgentTemplates()
         const response = await getAgent(activeAgentName, clusterContext)
-        const rawAgent =
-          (response && typeof response === 'object' && 'agent' in response ? response.agent : null) ||
-          (response && typeof response === 'object' && 'item' in response ? response.item : null) ||
-          response
+        const rawAgent = response?.agent || null
+        const templates = hydrateTemplateCatalog(templatePayload.items)
         const nextItem =
           mapBackendAgentsToListItems(
             rawAgent ? [rawAgent] : [],
+            templates,
             {
               cluster: clusterContext.server,
               namespace: clusterContext.namespace,

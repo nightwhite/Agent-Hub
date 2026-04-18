@@ -230,13 +230,13 @@ func minDuration(left, right time.Duration) time.Duration {
 }
 
 func bootstrapTemplateID(templateID string) string {
-	if strings.TrimSpace(templateID) == "" {
-		return "hermes-agent"
-	}
 	return strings.TrimSpace(templateID)
 }
 
 func updateBootstrapMetadata(devbox *unstructured.Unstructured, templateID string) error {
+	if strings.TrimSpace(templateID) == "" {
+		return fmt.Errorf("template id is required")
+	}
 	if err := kube.SetTemplateID(devbox, bootstrapTemplateID(templateID)); err != nil {
 		return err
 	}
