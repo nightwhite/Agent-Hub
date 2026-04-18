@@ -11,8 +11,23 @@ type SealosSdkClient = {
   getLanguage?: SealosSdkMethod
   getWorkspaceQuota?: SealosSdkMethod
   getHostConfig?: SealosSdkMethod
-  runEvents?: SealosSdkMethod
   addAppEventListen?: SealosSdkMethod
+  runEvents?: SealosSdkMethod
+}
+
+export interface OpenSealosDesktopAppOptions {
+  appKey: string
+  pathname: string
+  query?: Record<string, string>
+  messageData?: Record<string, unknown>
+  appSize?: 'minimize' | 'normal' | 'maximize'
+}
+
+type SealosEventResult = {
+  success?: boolean
+  message?: string
+  apiName?: string
+  [key: string]: unknown
 }
 
 const ensureSdkReady = (): SealosSdkClient | null => {
@@ -52,7 +67,48 @@ export const getSealosSession = async () => requireSdkMethod('getSession')()
 export const getSealosLanguage = async () => requireSdkMethod('getLanguage')()
 export const getSealosQuota = async () => requireSdkMethod('getWorkspaceQuota')()
 export const getSealosHostConfig = async () => requireSdkMethod('getHostConfig')()
-export const runSealosEvent = async (eventName: string, eventData: unknown) => requireSdkMethod('runEvents')(eventName, eventData)
+
+const extractSealosEventError = (eventName: string, result: unknown) => {
+  if (!result || typeof result !== 'object') {
+    return null
+  }
+
+  const payload = result as SealosEventResult
+  if (payload.success !== false) {
+    return null
+  }
+
+  const message =
+    typeof payload.message === 'string' && payload.message.trim().length > 0
+      ? payload.message.trim()
+      : `${eventName} failed`
+
+  return new Error(message)
+}
+
+export const runSealosEvent = async (eventName: string, payload: Record<string, unknown>) => {
+  const result = await requireSdkMethod('runEvents')(eventName, payload)
+  const error = extractSealosEventError(eventName, result)
+  if (error) {
+    throw error
+  }
+  return result
+}
+
+export const openSealosDesktopApp = async ({
+  appKey,
+  pathname,
+  query = {},
+  messageData = {},
+  appSize = 'normal',
+}: OpenSealosDesktopAppOptions) =>
+  runSealosEvent('openDesktopApp', {
+    appKey,
+    pathname,
+    query,
+    messageData,
+    appSize,
+  })
 
 export const addSealosAppEventListener = (eventName: string, handler: (...args: unknown[]) => void) => {
   const addListener = requireSdkMethod('addAppEventListen')
@@ -64,13 +120,13 @@ export const getSealosSdkDebugInfo = () => {
   return {
     sdkAvailable: Boolean(client),
     methods: client
-      ? {
+        ? {
           getSession: typeof client.getSession === 'function',
           getLanguage: typeof client.getLanguage === 'function',
           getWorkspaceQuota: typeof client.getWorkspaceQuota === 'function',
           getHostConfig: typeof client.getHostConfig === 'function',
-          runEvents: typeof client.runEvents === 'function',
           addAppEventListen: typeof client.addAppEventListen === 'function',
+          runEvents: typeof client.runEvents === 'function',
         }
       : null,
     isBrowser,

@@ -1,466 +1,532 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ITerminalAddon, Terminal } from '@xterm/xterm'
-import type { FitAddon } from '@xterm/addon-fit'
 import { buildAgentWebSocketUrl } from '../../../../api'
-import type { AgentListItem, ClusterContext, TerminalSessionState } from '../../../../domains/agents/types'
+import type {
+  AgentListItem,
+  ClusterContext,
+  TerminalSessionState,
+} from '../../../../domains/agents/types'
 
 type TerminalMessage = {
   type?: string
+  requestId?: string
   data?: Record<string, unknown>
 }
 
-type TerminalLike = {
-  cols: number
-  rows: number
-  write: (value: string) => void
-  open: (container: HTMLElement) => void
-  focus: () => void
-  loadAddon: (addon: ITerminalAddon) => void
-  onData: (callback: (value: string) => void) => { dispose?: () => void }
-  dispose?: () => void
-}
+type TerminalOutputListener = (chunk: string) => void
 
-type FitAddonLike = {
-  fit: () => void
-}
+const fallbackTerminalCwd = '/opt/hermes'
+const maxBufferedOutputChunks = 200
+const reconnectDelaySchedule = [600, 1200, 2400, 5000]
+const maxReconnectAttempts = 6
 
-type DisposableLike = {
-  dispose?: () => void
-}
-
-const createTerminalSession = (resource: AgentListItem): TerminalSessionState => ({
+const createTerminalSession = (
+  resource: AgentListItem,
+  payload?: Partial<TerminalSessionState>,
+): TerminalSessionState => ({
   resource,
   status: 'initializing',
   error: '',
-  podName: '',
-  containerName: '',
-  namespace: '',
-  wsUrl: '',
+  podName: payload?.podName || '',
+  containerName: payload?.containerName || '',
+  namespace: payload?.namespace || '',
+  wsUrl: payload?.wsUrl || '',
+  terminalId: payload?.terminalId || '',
+  cwd: payload?.cwd || resource.template.defaultWorkingDirectory || fallbackTerminalCwd,
 })
 
-const normalizeTerminalCwd = (input: string) => {
-  const value = String(input || '')
-    .trim()
-    .replace(/\\/g, '/')
-  const allowedRoots = ['/opt/data/workspace', '/opt/data', '/opt/hermes']
-
-  if (!value || value === '.' || value === '/') {
-    return '.'
-  }
-
-  if (value.startsWith('/')) {
-    const absolute = value.replace(/\/+$/, '') || '/'
-    const matchedRoot = allowedRoots.find((root) => absolute === root || absolute.startsWith(`${root}/`))
-    if (matchedRoot) {
-      return absolute
-    }
-
-    return '.'
-  }
-
-  const normalized = value.replace(/^\.\/+/, '')
-  if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('../')) {
-    return '.'
-  }
-
-  return normalized
+type ReconnectPlan = {
+  resource: AgentListItem | null
+  wsUrl: string
+  encodedKubeconfig: string
+  terminalId: string
+  cwd: string
 }
 
 interface UseAgentTerminalOptions {
   clusterContext: ClusterContext | null
+  onErrorMessage?: (message: string) => void
 }
 
-export function useAgentTerminal({ clusterContext }: UseAgentTerminalOptions) {
+export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTerminalOptions) {
   const [terminalSession, setTerminalSession] = useState<TerminalSessionState | null>(null)
 
-  const terminalContainerRef = useRef<HTMLDivElement | null>(null)
-  const terminalRef = useRef<TerminalLike | null>(null)
-  const terminalFitAddonRef = useRef<FitAddonLike | null>(null)
-  const terminalSocketRef = useRef<WebSocket | null>(null)
-  const terminalDataDisposableRef = useRef<DisposableLike | null>(null)
-  const terminalRequestSeqRef = useRef(0)
-  const terminalSocketSessionIdRef = useRef('')
+  const socketRef = useRef<WebSocket | null>(null)
+  const terminalSessionRef = useRef<TerminalSessionState | null>(null)
+  const requestVersionRef = useRef(0)
+  const requestSeqRef = useRef(0)
+  const authSentRef = useRef(false)
+  const terminalOpenSentRef = useRef(false)
+  const closingSocketsRef = useRef(new WeakSet<WebSocket>())
+  const outputListenersRef = useRef(new Set<TerminalOutputListener>())
+  const outputBacklogRef = useRef<string[]>([])
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const connectSocketRef = useRef<(version: number, plan: ReconnectPlan, mode: 'fresh' | 'reconnect') => void>(() => {})
+  const reconnectPlanRef = useRef<ReconnectPlan>({
+    resource: null,
+    wsUrl: '',
+    encodedKubeconfig: '',
+    terminalId: '',
+    cwd: fallbackTerminalCwd,
+  })
+  const clusterKubeconfig = clusterContext?.kubeconfig || ''
 
-  const nextTerminalRequestId = useCallback((prefix = 'ws') => {
-    terminalRequestSeqRef.current += 1
-    return `${prefix}-${Date.now()}-${terminalRequestSeqRef.current}`
+  const syncSession = useCallback((updater: (current: TerminalSessionState | null) => TerminalSessionState | null) => {
+    setTerminalSession((current) => {
+      const next = updater(current)
+      terminalSessionRef.current = next
+      return next
+    })
   }, [])
 
-  const sendTerminalMessage = useCallback(
-    (type: string, data: Record<string, unknown>) => {
-      const socket = terminalSocketRef.current
-      if (!socket || socket.readyState !== WebSocket.OPEN) return false
+  const nextRequestId = useCallback((prefix = 'terminal') => {
+    requestSeqRef.current += 1
+    return `${prefix}-${Date.now()}-${requestSeqRef.current}`
+  }, [])
 
-      socket.send(
-        JSON.stringify({
-          type,
-          requestId: nextTerminalRequestId(type),
-          data,
-        }),
-      )
+  const emitOutput = useCallback((chunk: string) => {
+    if (!chunk) return
 
-      return true
-    },
-    [nextTerminalRequestId],
-  )
+    const listeners = outputListenersRef.current
+    if (!listeners.size) {
+      outputBacklogRef.current.push(chunk)
+      if (outputBacklogRef.current.length > maxBufferedOutputChunks) {
+        outputBacklogRef.current.splice(0, outputBacklogRef.current.length - maxBufferedOutputChunks)
+      }
+      return
+    }
 
-  const sendTerminalResize = useCallback(() => {
-    const terminal = terminalRef.current
-    const sessionId = terminalSocketSessionIdRef.current
-    if (!terminal || !sessionId) return
+    listeners.forEach((listener) => listener(chunk))
+  }, [])
 
-    sendTerminalMessage('terminal.resize', {
-      id: sessionId,
-      cols: terminal.cols,
-      rows: terminal.rows,
-    })
-  }, [sendTerminalMessage])
+  const subscribeTerminalOutput = useCallback((listener: TerminalOutputListener) => {
+    outputListenersRef.current.add(listener)
 
-  const closeTerminalSocket = useCallback(() => {
-    const socket = terminalSocketRef.current
+    if (outputBacklogRef.current.length) {
+      outputBacklogRef.current.forEach((chunk) => listener(chunk))
+      outputBacklogRef.current = []
+    }
 
-    terminalSocketRef.current = null
-    terminalSocketSessionIdRef.current = ''
+    return () => {
+      outputListenersRef.current.delete(listener)
+    }
+  }, [])
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+  }, [])
+
+  const closeSocket = useCallback(() => {
+    const socket = socketRef.current
+    socketRef.current = null
+    authSentRef.current = false
+    terminalOpenSentRef.current = false
 
     if (socket && socket.readyState <= WebSocket.OPEN) {
+      closingSocketsRef.current.add(socket)
       socket.close(1000, 'manual-close')
     }
   }, [])
 
-  const disconnectTerminal = useCallback(
-    (options: { keepSession?: boolean; nextStatus?: TerminalSessionState['status']; nextError?: string } = {}) => {
-      const { keepSession = true, nextStatus = 'disconnected', nextError = '' } = options
-      closeTerminalSocket()
+  const connectSocket = useCallback((
+    version: number,
+    plan: ReconnectPlan,
+    mode: 'fresh' | 'reconnect',
+  ) => {
+    if (!plan.resource || !plan.wsUrl || !plan.encodedKubeconfig || !plan.terminalId) {
+      return
+    }
 
-      if (!keepSession) {
-        setTerminalSession(null)
+    closeSocket()
+
+    const socket = new WebSocket(plan.wsUrl)
+    socketRef.current = socket
+    authSentRef.current = false
+    terminalOpenSentRef.current = false
+
+    const sendAuth = () => {
+      if (version !== requestVersionRef.current) return
+      if (socket.readyState !== WebSocket.OPEN || authSentRef.current) return
+
+      authSentRef.current = true
+      socket.send(
+        JSON.stringify({
+          type: 'auth',
+          requestId: nextRequestId('terminal.auth'),
+          data: {
+            authorization: plan.encodedKubeconfig,
+          },
+        }),
+      )
+    }
+
+    const sendTerminalOpen = () => {
+      if (version !== requestVersionRef.current) return
+      if (socket.readyState !== WebSocket.OPEN || terminalOpenSentRef.current) return
+
+      terminalOpenSentRef.current = true
+      socket.send(
+        JSON.stringify({
+          type: 'terminal.open',
+          requestId: nextRequestId('terminal.open'),
+          data: {
+            id: plan.terminalId,
+            cwd: plan.cwd,
+          },
+        }),
+      )
+    }
+
+    socket.addEventListener('message', (event) => {
+      if (version !== requestVersionRef.current) return
+
+      let messagePayload: TerminalMessage | null = null
+      try {
+        messagePayload = JSON.parse(String(event.data || '{}'))
+      } catch {
         return
       }
 
-      setTerminalSession((current) =>
+      const data = messagePayload?.data || {}
+      const messageType = String(messagePayload?.type || '')
+      const messageTerminalID = String(data.id || '')
+
+      switch (messageType) {
+        case 'auth.required':
+          sendAuth()
+          return
+        case 'system.ready':
+          syncSession((current) =>
+            current
+              ? {
+                  ...current,
+                  status: mode === 'reconnect' ? 'reconnecting' : 'connecting',
+                  error: '',
+                  podName: String(data.podName || current.podName || ''),
+                  containerName: String(data.container || current.containerName || ''),
+                  namespace: String(data.namespace || current.namespace || plan.resource?.namespace || ''),
+                }
+              : current,
+          )
+          sendTerminalOpen()
+          return
+        case 'terminal.opened':
+          if (messageTerminalID !== plan.terminalId) return
+          reconnectAttemptsRef.current = 0
+          clearReconnectTimer()
+          syncSession((current) =>
+            current
+              ? {
+                  ...current,
+                  status: 'connected',
+                  error: '',
+                  cwd: String(data.cwd || current.cwd || plan.cwd),
+                  terminalId: messageTerminalID || current.terminalId,
+                }
+              : current,
+          )
+          if (mode === 'reconnect') {
+            emitOutput('\r\n\x1b[90mConnection restored.\x1b[0m\r\n')
+          }
+          return
+        case 'terminal.output':
+          if (messageTerminalID !== plan.terminalId) return
+          emitOutput(String(data.output || ''))
+          return
+        case 'terminal.closed':
+          if (messageTerminalID !== plan.terminalId) return
+          syncSession((current) =>
+            current
+              ? {
+                  ...current,
+                  status: current.error ? 'error' : 'disconnected',
+                }
+              : current,
+          )
+          return
+        case 'error': {
+          const code = String(data.code || '')
+          if (code === 'already_authenticated') {
+            return
+          }
+
+          const message = String(data.message || '终端连接失败')
+          syncSession((current) =>
+            current
+              ? {
+                  ...current,
+                  status: 'error',
+                  error: message,
+                }
+              : current,
+          )
+
+          if (messageTerminalID === plan.terminalId || !messageTerminalID) {
+            emitOutput(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
+          }
+          onErrorMessage?.(message)
+          return
+        }
+        default:
+          return
+      }
+    })
+
+    socket.addEventListener('error', () => {
+      if (version !== requestVersionRef.current) return
+
+      syncSession((current) =>
         current
           ? {
               ...current,
-              status: nextStatus,
-              error: nextError,
+              status: 'reconnecting',
+              error: '',
             }
           : current,
       )
-    },
-    [closeTerminalSocket],
-  )
+    })
 
-  const writeTerminalData = useCallback((value: string) => {
-    terminalRef.current?.write(value)
-  }, [])
+    socket.addEventListener('close', (event) => {
+      const closedManually = closingSocketsRef.current.has(socket)
+      closingSocketsRef.current.delete(socket)
+
+      if (socketRef.current === socket) {
+        socketRef.current = null
+        authSentRef.current = false
+        terminalOpenSentRef.current = false
+      }
+
+      if (version !== requestVersionRef.current || closedManually) {
+        return
+      }
+
+      const current = terminalSessionRef.current
+      const reconnectPlan = reconnectPlanRef.current
+      if (!current || !reconnectPlan.resource) {
+        return
+      }
+
+      const nextAttempt = reconnectAttemptsRef.current + 1
+      reconnectAttemptsRef.current = nextAttempt
+
+      if (nextAttempt > maxReconnectAttempts) {
+        const message = '终端连接多次重试失败，请手动重新连接。'
+        clearReconnectTimer()
+        syncSession((session) =>
+          session
+            ? {
+                ...session,
+                status: 'error',
+                error: message,
+              }
+            : session,
+        )
+        emitOutput(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
+        onErrorMessage?.(message)
+        return
+      }
+
+      const delay = reconnectDelaySchedule[Math.min(nextAttempt - 1, reconnectDelaySchedule.length - 1)]
+
+      clearReconnectTimer()
+      syncSession((session) =>
+        session
+          ? {
+              ...session,
+              status: 'reconnecting',
+              error: '',
+            }
+          : session,
+      )
+
+      emitOutput(
+        `\r\n\x1b[90mConnection lost${event.code ? ` (code=${event.code})` : ''}, reconnecting in ${Math.max(1, Math.round(delay / 1000))}s...\x1b[0m\r\n`,
+      )
+
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null
+        connectSocketRef.current(version, reconnectPlanRef.current, 'reconnect')
+      }, delay)
+    })
+  }, [clearReconnectTimer, closeSocket, emitOutput, nextRequestId, onErrorMessage, syncSession])
+
+  useEffect(() => {
+    connectSocketRef.current = connectSocket
+  }, [connectSocket])
+
+  const openTerminal = useCallback(
+    async (resource: AgentListItem) => {
+      requestVersionRef.current += 1
+      const version = requestVersionRef.current
+
+      clearReconnectTimer()
+      reconnectAttemptsRef.current = 0
+      outputBacklogRef.current = []
+      closeSocket()
+
+      if (!clusterKubeconfig) {
+        const message = '当前工作区还没准备好，暂时无法连接终端。'
+        syncSession(() => ({
+          ...createTerminalSession(resource),
+          status: 'error',
+          error: message,
+        }))
+        onErrorMessage?.(message)
+        return
+      }
+
+      const plan: ReconnectPlan = {
+        resource,
+        wsUrl: buildAgentWebSocketUrl(resource.name),
+        encodedKubeconfig: encodeURIComponent(clusterKubeconfig),
+        terminalId: nextRequestId('terminal.session'),
+        cwd: resource.template.defaultWorkingDirectory || fallbackTerminalCwd,
+      }
+      reconnectPlanRef.current = plan
+
+      syncSession(() => ({
+        ...createTerminalSession(resource, {
+          wsUrl: plan.wsUrl,
+          terminalId: plan.terminalId,
+          cwd: plan.cwd,
+        }),
+        status: 'connecting',
+      }))
+
+      connectSocket(version, plan, 'fresh')
+    },
+    [clearReconnectTimer, closeSocket, clusterKubeconfig, connectSocket, nextRequestId, onErrorMessage, syncSession],
+  )
 
   const sendTerminalInput = useCallback(
     (input: string) => {
-      const sessionId = terminalSocketSessionIdRef.current
-      if (!sessionId || typeof input !== 'string' || input.length === 0) return
+      const normalizedInput = String(input || '')
+      if (!normalizedInput) return
 
-      sendTerminalMessage('terminal.input', {
-        id: sessionId,
-        input,
-      })
-    },
-    [sendTerminalMessage],
-  )
-
-  const connectTerminal = useCallback(
-    async (resource: AgentListItem) => {
-      if (!clusterContext) {
-        setTerminalSession((current) =>
-          current
-            ? {
-                ...current,
-                status: 'error',
-                error: '缺少集群上下文，无法建立终端连接。',
-              }
-            : current,
-        )
+      const socket = socketRef.current
+      const current = terminalSessionRef.current
+      if (!socket || socket.readyState !== WebSocket.OPEN || !current?.terminalId || current.status !== 'connected') {
         return
       }
 
-      const encodedKubeconfig = encodeURIComponent(clusterContext.kubeconfig || '')
-      if (!encodedKubeconfig) {
-        setTerminalSession((current) =>
-          current
-            ? {
-                ...current,
-                status: 'error',
-                error: '未读取到 kubeconfig，无法建立终端连接。',
-              }
-            : current,
-        )
-        return
-      }
-
-      setTerminalSession((current) => (current ? { ...current, status: 'connecting', error: '' } : current))
-      closeTerminalSocket()
-
-      const wsUrl = buildAgentWebSocketUrl(resource.name)
-      const socket = new WebSocket(wsUrl)
-      const sessionId = `terminal-${Date.now()}`
-      let authSent = false
-      let terminalOpened = false
-
-      terminalSocketRef.current = socket
-      terminalSocketSessionIdRef.current = sessionId
-
-      const sendAuth = () => {
-        if (socket.readyState !== WebSocket.OPEN || authSent) return
-        authSent = true
-
-        socket.send(
-          JSON.stringify({
-            type: 'auth',
-            requestId: nextTerminalRequestId('auth'),
-            data: {
-              authorization: encodedKubeconfig,
-            },
-          }),
-        )
-      }
-
-      socket.addEventListener('message', (event) => {
-        let messagePayload: TerminalMessage | null = null
-
-        try {
-          messagePayload = JSON.parse(String(event.data || '{}'))
-        } catch {
-          return
-        }
-
-        const data = messagePayload?.data || {}
-
-        switch (messagePayload?.type) {
-          case 'auth.required': {
-            sendAuth()
-            break
-          }
-          case 'system.ready': {
-            setTerminalSession((current) =>
-              current
-                ? {
-                    ...current,
-                    wsUrl,
-                    podName: String(data.podName || ''),
-                    containerName: String(data.container || ''),
-                    namespace: String(data.namespace || current.namespace || ''),
-                  }
-                : current,
-            )
-
-            if (!terminalOpened) {
-              terminalOpened = true
-              sendTerminalMessage('terminal.open', {
-                id: sessionId,
-                cwd: normalizeTerminalCwd(resource.template.defaultWorkingDirectory || '.'),
-              })
-            }
-            break
-          }
-          case 'terminal.opened': {
-            if (String(data.id || '') !== sessionId) return
-
-            setTerminalSession((current) =>
-              current
-                ? {
-                    ...current,
-                    status: 'connected',
-                    error: '',
-                    wsUrl,
-                  }
-                : current,
-            )
-            window.setTimeout(() => sendTerminalResize(), 0)
-            break
-          }
-          case 'terminal.output': {
-            if (String(data.id || '') !== sessionId) return
-            writeTerminalData(String(data.output || ''))
-            break
-          }
-          case 'terminal.closed': {
-            if (String(data.id || '') !== sessionId) return
-            setTerminalSession((current) =>
-              current
-                ? {
-                    ...current,
-                    status: 'disconnected',
-                    error: current.error,
-                  }
-                : current,
-            )
-            break
-          }
-          case 'error': {
-            if (String(data.code || '') === 'already_authenticated') {
-              break
-            }
-            setTerminalSession((current) =>
-              current
-                ? {
-                    ...current,
-                    status: 'error',
-                    error: String(data.message || '终端连接失败'),
-                  }
-                : current,
-            )
-            break
-          }
-          default:
-            break
-        }
-      })
-
-      socket.addEventListener('error', () => {
-        setTerminalSession((current) =>
-          current
-            ? {
-                ...current,
-                status: 'error',
-                error: '终端连接异常，请关闭后重新打开。',
-              }
-            : current,
-        )
-      })
-
-      socket.addEventListener('close', (event) => {
-        setTerminalSession((current) =>
-          current
-            ? {
-                ...current,
-                status: current.status === 'error' ? current.status : 'disconnected',
-                error: current.error || (event.code && event.code !== 1000 ? `连接已关闭（code=${event.code}）` : ''),
-              }
-            : current,
-        )
-
-        if (terminalSocketRef.current === socket) {
-          terminalSocketRef.current = null
-          terminalSocketSessionIdRef.current = ''
-        }
-      })
-    },
-    [clusterContext, closeTerminalSocket, nextTerminalRequestId, sendTerminalMessage, sendTerminalResize, writeTerminalData],
-  )
-
-  useEffect(() => {
-    const resource = terminalSession?.resource
-    if (!resource || !terminalContainerRef.current) return
-
-    let disposed = false
-    let resizeObserver: ResizeObserver | null = null
-    let onWindowResize: (() => void) | null = null
-
-    const initTerminal = async () => {
-      try {
-        await import('@xterm/xterm/css/xterm.css')
-        const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')])
-
-        if (disposed || !terminalContainerRef.current) return
-
-        const terminal: Terminal = new Terminal({
-          cursorBlink: true,
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace',
-          fontSize: 14,
-          lineHeight: 1.35,
-          convertEol: true,
-          scrollback: 4000,
-          theme: {
-            background: '#05070a',
-            foreground: '#f3efe7',
-            cursor: '#f6c58f',
-            cursorAccent: '#05070a',
-            selectionBackground: 'rgba(250, 249, 246, 0.18)',
+      socket.send(
+        JSON.stringify({
+          type: 'terminal.input',
+          requestId: nextRequestId('terminal.input'),
+          data: {
+            id: current.terminalId,
+            input: normalizedInput,
           },
-        })
+        }),
+      )
+    },
+    [nextRequestId],
+  )
 
-        const fitAddon: FitAddon = new FitAddon()
-        terminal.loadAddon(fitAddon)
-        terminal.open(terminalContainerRef.current)
-        fitAddon.fit()
-        terminal.focus()
-
-        terminalRef.current = terminal
-        terminalFitAddonRef.current = fitAddon
-
-        resizeObserver = new ResizeObserver(() => {
-          fitAddon.fit()
-          sendTerminalResize()
-        })
-        resizeObserver.observe(terminalContainerRef.current)
-
-        onWindowResize = () => {
-          fitAddon.fit()
-          sendTerminalResize()
-        }
-        window.addEventListener('resize', onWindowResize)
-
-        terminalDataDisposableRef.current = terminal.onData((input: string) => {
-          sendTerminalInput(input)
-        })
-
-        await connectTerminal(resource)
-      } catch (error) {
-        setTerminalSession((current) =>
-          current
-            ? {
-                ...current,
-                status: 'error',
-                error: error instanceof Error ? error.message : '终端初始化失败',
-              }
-            : current,
-        )
-      }
-    }
-
-    initTerminal()
-
-    return () => {
-      disposed = true
-      terminalDataDisposableRef.current?.dispose?.()
-      terminalDataDisposableRef.current = null
-
-      if (onWindowResize) {
-        window.removeEventListener('resize', onWindowResize)
+  const resizeTerminal = useCallback(
+    (cols: number, rows: number) => {
+      const socket = socketRef.current
+      const current = terminalSessionRef.current
+      if (!socket || socket.readyState !== WebSocket.OPEN || !current?.terminalId || current.status !== 'connected') {
+        return
       }
 
-      resizeObserver?.disconnect()
-      terminalRef.current?.dispose?.()
-      terminalRef.current = null
-      terminalFitAddonRef.current = null
+      if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols <= 0 || rows <= 0) {
+        return
+      }
 
-      disconnectTerminal({ keepSession: true, nextStatus: 'disconnected' })
+      socket.send(
+        JSON.stringify({
+          type: 'terminal.resize',
+          requestId: nextRequestId('terminal.resize'),
+          data: {
+            id: current.terminalId,
+            cols: Math.floor(cols),
+            rows: Math.floor(rows),
+          },
+        }),
+      )
+    },
+    [nextRequestId],
+  )
+
+  const markTerminalConnected = useCallback(() => {
+    syncSession((current) =>
+      current
+        ? {
+            ...current,
+            status: 'connected',
+            error: '',
+          }
+        : current,
+    )
+  }, [syncSession])
+
+  const markTerminalError = useCallback((message: string) => {
+    const normalizedMessage = String(message || '').trim() || '终端连接失败'
+    clearReconnectTimer()
+    syncSession((current) =>
+      current
+        ? {
+            ...current,
+            status: 'error',
+            error: normalizedMessage,
+          }
+        : current,
+    )
+    onErrorMessage?.(normalizedMessage)
+  }, [clearReconnectTimer, onErrorMessage, syncSession])
+
+  const closeTerminal = useCallback(() => {
+    requestVersionRef.current += 1
+    clearReconnectTimer()
+    reconnectAttemptsRef.current = 0
+
+    const socket = socketRef.current
+    const current = terminalSessionRef.current
+    if (socket && socket.readyState === WebSocket.OPEN && current?.terminalId) {
+      socket.send(
+        JSON.stringify({
+          type: 'terminal.close',
+          requestId: nextRequestId('terminal.close'),
+          data: {
+            id: current.terminalId,
+          },
+        }),
+      )
     }
-  }, [connectTerminal, disconnectTerminal, sendTerminalInput, sendTerminalResize, terminalSession?.resource])
+
+    reconnectPlanRef.current = {
+      resource: null,
+      wsUrl: '',
+      encodedKubeconfig: '',
+      terminalId: '',
+      cwd: fallbackTerminalCwd,
+    }
+    outputBacklogRef.current = []
+    closeSocket()
+    syncSession(() => null)
+  }, [clearReconnectTimer, closeSocket, nextRequestId, syncSession])
 
   useEffect(
     () => () => {
-      terminalDataDisposableRef.current?.dispose?.()
-      terminalDataDisposableRef.current = null
-      closeTerminalSocket()
-      terminalRef.current?.dispose?.()
-      terminalRef.current = null
-      terminalFitAddonRef.current = null
+      clearReconnectTimer()
+      closeSocket()
     },
-    [closeTerminalSocket],
+    [clearReconnectTimer, closeSocket],
   )
-
-  const openTerminal = useCallback((item: AgentListItem) => {
-    setTerminalSession(createTerminalSession(item))
-  }, [])
-
-  const closeTerminal = useCallback(() => {
-    disconnectTerminal({ keepSession: false })
-  }, [disconnectTerminal])
 
   return {
     closeTerminal,
+    markTerminalConnected,
+    markTerminalError,
     openTerminal,
-    terminalContainerRef,
+    resizeTerminal,
+    sendTerminalInput,
+    subscribeTerminalOutput,
     terminalSession,
   }
 }

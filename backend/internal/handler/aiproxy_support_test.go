@@ -46,3 +46,48 @@ func TestDefaultAIProxyTokenNamesIncludesPreferredAndLegacyNames(t *testing.T) {
 		t.Fatalf("defaultAIProxyTokenNames()[2] = %q, want agenthub-ns-test", got[2])
 	}
 }
+
+func TestResolveAIProxyModelBaseURLPrefersExplicitValue(t *testing.T) {
+	t.Parallel()
+
+	got := resolveAIProxyModelBaseURL("https://aiproxy.usw-1.sealos.io", "https://hzh.sealos.run:6443")
+	if got != "https://aiproxy.usw-1.sealos.io/v1" {
+		t.Fatalf("resolveAIProxyModelBaseURL() = %q, want explicit value", got)
+	}
+}
+
+func TestResolveAIProxyModelBaseURLDerivesFromClusterServer(t *testing.T) {
+	t.Parallel()
+
+	got := resolveAIProxyModelBaseURL("", "https://usw-1.sealos.io:6443")
+	if got != "https://aiproxy.usw-1.sealos.io/v1" {
+		t.Fatalf("resolveAIProxyModelBaseURL() = %q, want derived usw-1 url", got)
+	}
+}
+
+func TestResolveAIProxyModelBaseURLFallsBackWhenClusterServerIsUnsupported(t *testing.T) {
+	t.Parallel()
+
+	got := resolveAIProxyModelBaseURL("", "https://127.0.0.1:6443")
+	if got != fallbackAIProxyModelBaseURL {
+		t.Fatalf("resolveAIProxyModelBaseURL() = %q, want fallback %q", got, fallbackAIProxyModelBaseURL)
+	}
+}
+
+func TestNormalizeAIProxyModelBaseURLAppendsV1ForRootURL(t *testing.T) {
+	t.Parallel()
+
+	got := normalizeAIProxyModelBaseURL("https://aiproxy.usw-1.sealos.io")
+	if got != "https://aiproxy.usw-1.sealos.io/v1" {
+		t.Fatalf("normalizeAIProxyModelBaseURL() = %q, want /v1 suffix", got)
+	}
+}
+
+func TestNormalizeAIProxyModelBaseURLPreservesNonRootPath(t *testing.T) {
+	t.Parallel()
+
+	got := normalizeAIProxyModelBaseURL("https://aiproxy.usw-1.sealos.io/anthropic")
+	if got != "https://aiproxy.usw-1.sealos.io/anthropic" {
+		t.Fatalf("normalizeAIProxyModelBaseURL() = %q, want existing path preserved", got)
+	}
+}

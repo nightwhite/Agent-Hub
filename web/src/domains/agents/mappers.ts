@@ -1,326 +1,262 @@
-import {
-  AGENT_TEMPLATES,
-  inferTemplateIdFromImage,
-  mapRawStatusToRuntimeStatus,
-  resolveTemplateById,
-  resolveResourcePreset,
-} from './templates'
+import { getDefaultModelOption, resolveResourcePreset } from "./templates";
 import type {
+  AgentAccessItem,
+  AgentActionItem,
   AgentBlueprint,
+  AgentContract,
   AgentListItem,
+  AgentRuntimeStatus,
+  AgentSettingField,
+  AgentWorkspaceItem,
+  AgentTemplateDefinition,
   ClusterInfo,
-  ResourceCollection,
-  ResourceGroup,
-  ResourceItem,
-} from './types'
-
-type BackendAgentItem = {
-  agentName: string
-  aliasName?: string
-  namespace: string
-  status: string
-  cpu: string
-  memory: string
-  storage: string
-  modelProvider: string
-  modelBaseURL: string
-  model: string
-  hasModelAPIKey: boolean
-  ingressDomain?: string
-  apiBaseURL?: string
-  createdAt?: string
-}
-
-type LabelMap = Record<string, string>
-
-type DevboxYaml = {
-  metadata?: { namespace?: string; labels?: LabelMap }
-  spec?: {
-    config?: {
-      env?: Array<{ name?: string; value?: string }>
-      appPorts?: Array<{ port?: number; protocol?: string }>
-      args?: string[]
-      workingDir?: string
-    }
-    network?: { extraPorts?: Array<{ containerPort?: number }> }
-    image?: string
-    state?: string
-    runtimeClassName?: string
-    storageLimit?: string
-    resource?: { cpu?: string; memory?: string }
-  }
-}
-
-type ServiceYaml = {
-  metadata?: { namespace?: string }
-  spec?: {
-    type?: 'ClusterIP'
-    ports?: Array<{ port?: number; targetPort?: number; protocol?: 'TCP' }>
-  }
-}
-
-type IngressYaml = {
-  metadata?: { namespace?: string; labels?: LabelMap }
-  spec?: {
-    rules?: Array<{
-      host?: string
-      http?: {
-        paths?: Array<{
-          backend?: {
-            service?: {
-              name?: string
-              port?: { number?: number }
-            }
-          }
-        }>
-      }
-    }>
-  }
-}
-
-const getResourceLabels = (item?: ResourceItem | null): LabelMap =>
-  ((item?.yaml as { metadata?: { labels?: LabelMap } } | undefined)?.metadata?.labels || {}) as LabelMap
-
-const getIngressYaml = (item?: ResourceItem | null): IngressYaml =>
-  ((item?.yaml || {}) as IngressYaml)
+} from "./types";
 
 export const normalizeName = (value: string) =>
-  String(value || '')
+  String(value || "")
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 63)
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63);
 
-export const ensureDns1035Name = (value: string, fallback = 'agent') => {
-  const normalized = normalizeName(value) || normalizeName(fallback) || 'agent'
-  const candidate = /^[a-z]/.test(normalized) ? normalized : `a${normalized}`
-  return candidate.slice(0, 63).replace(/^-+|-+$/g, '') || 'agent'
-}
+export const ensureDns1035Name = (value: string, fallback = "agent") => {
+  const normalized = normalizeName(value) || normalizeName(fallback) || "agent";
+  const candidate = /^[a-z]/.test(normalized) ? normalized : `a${normalized}`;
+  return candidate.slice(0, 63).replace(/^-+|-+$/g, "") || "agent";
+};
 
-export const splitArgsText = (value = '') =>
+export const splitArgsText = (value = "") =>
   value
     .split(/\s+/)
     .map((item) => item.trim())
-    .filter(Boolean)
+    .filter(Boolean);
 
-export const getLabelId = (item?: ResourceItem | null) =>
-  String(
-    getResourceLabels(item).id ||
-      getResourceLabels(item)['agent.sealos.io/name'] ||
-      '--',
-  )
+export const mapRawStatusToRuntimeStatus = (
+  status = "",
+): AgentRuntimeStatus => {
+  const normalized = String(status || "").toLowerCase();
 
-export const findResourceGroup = (resources: ResourceCollection, name: string): ResourceGroup => {
-  const devbox = resources.devbox.find((entry) => entry.name === name) || null
-  const service = resources.service.find((entry) => entry.name === name) || null
-  const ingress =
-    resources.ingress.find(
-      (entry) => getIngressYaml(entry).spec?.rules?.[0]?.http?.paths?.[0]?.backend?.service?.name === name,
-    ) ||
-    resources.ingress.find((entry) => entry.name === name) ||
-    resources.ingress.find((entry) => entry.name === `network-${normalizeName(name)}`) ||
-    null
-
-  return { devbox, service, ingress }
-}
-
-export const createBlueprintFromResourceGroup = ({
-  devbox,
-  service,
-  ingress,
-  fallbackNamespace,
-}: ResourceGroup & { fallbackNamespace?: string }): AgentBlueprint => {
-  const devboxYaml = (devbox?.yaml || {}) as DevboxYaml
-  const serviceYaml = (service?.yaml || {}) as ServiceYaml
-  const ingressYaml = (ingress?.yaml || {}) as IngressYaml
-  const host = ingressYaml?.spec?.rules?.[0]?.host || ''
-  const envList = devboxYaml?.spec?.config?.env || []
-  const appPorts = devboxYaml?.spec?.config?.appPorts || []
-  const servicePorts = serviceYaml?.spec?.ports || []
-  const args = devboxYaml?.spec?.config?.args || []
-  const image = devboxYaml?.spec?.image || devbox?.image || AGENT_TEMPLATES['hermes-agent'].image
-  const templateId = inferTemplateIdFromImage(image)
-
-  const apiKey = envList.find((env: { name?: string; value?: string }) => env.name === 'API_SERVER_KEY')?.value || ''
-  const apiUrl = host ? `https://${host}/v1` : ''
-
-  return {
-    appName: devbox?.name || service?.name || ingress?.name || '',
-    aliasName: devbox?.name || service?.name || ingress?.name || '',
-    namespace:
-      devboxYaml?.metadata?.namespace ||
-      serviceYaml?.metadata?.namespace ||
-      ingressYaml?.metadata?.namespace ||
-      fallbackNamespace ||
-      '',
-    apiKey,
-    apiUrl,
-    domainPrefix:
-      ingressYaml?.metadata?.labels?.['cloud.sealos.io/app-deploy-manager-domain'] ||
-      host.split('.')[0] ||
-      '',
-    fullDomain: host,
-    image,
-    productType: templateId,
-    state: devboxYaml?.spec?.state === 'Paused' ? 'Paused' : 'Running',
-    runtimeClassName: devboxYaml?.spec?.runtimeClassName || 'devbox-runtime',
-    storageLimit: devboxYaml?.spec?.storageLimit || '10Gi',
-    port:
-      appPorts[0]?.port ||
-      servicePorts[0]?.port ||
-      ingressYaml?.spec?.rules?.[0]?.http?.paths?.[0]?.backend?.service?.port?.number ||
-      8642,
-    cpu: devboxYaml?.spec?.resource?.cpu || '2000m',
-    memory: devboxYaml?.spec?.resource?.memory || '4096Mi',
-    profile: resolveResourcePreset(
-      devboxYaml?.spec?.resource?.cpu || '2000m',
-      devboxYaml?.spec?.resource?.memory || '4096Mi',
-    ),
-    serviceType: 'ClusterIP',
-    protocol: appPorts[0]?.protocol === 'TCP' || servicePorts[0]?.protocol === 'TCP' ? 'TCP' : 'TCP',
-    user: devbox?.owner || 'admin',
-    workingDir: devboxYaml?.spec?.config?.workingDir || AGENT_TEMPLATES[templateId].defaultWorkingDirectory,
-    argsText: Array.isArray(args) ? args.join(' ') : AGENT_TEMPLATES[templateId].defaultArgs.join(' '),
-    modelProvider: AGENT_TEMPLATES[templateId].defaultModelProvider,
-    modelBaseURL: AGENT_TEMPLATES[templateId].defaultModelBaseURL,
-    model: AGENT_TEMPLATES[templateId].defaultModel,
-    hasModelAPIKey: false,
+  if (
+    normalized.includes("running") ||
+    normalized.includes("healthy") ||
+    normalized.includes("active")
+  ) {
+    return "running";
   }
-}
 
-export const mapResourcesToAgentListItems = (
-  resources: ResourceCollection,
-  clusterInfo: ClusterInfo | null,
-): AgentListItem[] =>
-  resources.devbox.map((item) => {
-    const resourceGroup = findResourceGroup(resources, item.name)
-    const blueprint = createBlueprintFromResourceGroup({
-      ...resourceGroup,
-      fallbackNamespace: clusterInfo?.namespace,
-    })
-    const template = AGENT_TEMPLATES[blueprint.productType]
-    const runtimeStatus = mapRawStatusToRuntimeStatus(item.status)
+  if (
+    normalized.includes("pending") ||
+    normalized.includes("creating") ||
+    normalized.includes("initial") ||
+    normalized.includes("starting") ||
+    normalized.includes("updating") ||
+    normalized.includes("deleting") ||
+    normalized.includes("stopping")
+  ) {
+    return "creating";
+  }
 
-    return {
-      id: item.id,
-      name: item.name,
-      aliasName: blueprint.aliasName,
-      namespace: blueprint.namespace,
-      labelId: getLabelId(resourceGroup.devbox || item),
-      owner: item.owner,
-      status: runtimeStatus,
-      statusText: item.status,
-      updatedAt: item.updatedAt,
-      cpu: blueprint.cpu,
-      memory: blueprint.memory,
-      storage: blueprint.storageLimit,
-      apiUrl: blueprint.apiUrl,
-      apiKey: blueprint.apiKey || item.apiKey || '',
-      templateId: blueprint.productType,
-      template,
-      resourceGroup,
-      rawStatus: item.status,
-      modelProvider: blueprint.modelProvider,
-      modelBaseURL: blueprint.modelBaseURL,
-      model: blueprint.model,
-      hasModelAPIKey: blueprint.hasModelAPIKey,
-      chatAvailable: Boolean(blueprint.apiKey),
-      chatDisabledReason: blueprint.apiKey ? '' : '当前实例未暴露可直接使用的 API Key。',
-      yaml: item.yaml,
+  if (normalized.includes("paused") || normalized.includes("stop")) {
+    return "stopped";
+  }
+
+  return "error";
+};
+
+export const indexAccessItems = (items: AgentAccessItem[] = []) =>
+  Object.fromEntries(items.map((item) => [item.key, item])) as Record<
+    string,
+    AgentAccessItem
+  >;
+
+export const indexActionItems = (items: AgentActionItem[] = []) =>
+  Object.fromEntries(items.map((item) => [item.key, item])) as Record<
+    string,
+    AgentActionItem
+  >;
+
+export const indexWorkspaceItems = (items: AgentWorkspaceItem[] = []) =>
+  Object.fromEntries(items.map((item) => [item.key, item])) as Record<
+    string,
+    AgentWorkspaceItem
+  >;
+
+export const getSettingFieldValue = (
+  fields: AgentSettingField[] = [],
+  key = "",
+) => {
+  const field = fields.find((item) => item.key === key);
+  return field?.value;
+};
+
+export const getSettingFieldStringValue = (
+  fields: AgentSettingField[] = [],
+  key = "",
+) => {
+  const value = getSettingFieldValue(fields, key);
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value == null) {
+    return "";
+  }
+  return String(value);
+};
+
+export const getAccessItem = (
+  item: Pick<AgentListItem, "accessByKey">,
+  key: string,
+) => item.accessByKey[key] || null;
+
+export const getActionItem = (
+  item: Pick<AgentListItem, "actionsByKey">,
+  key: string,
+) => item.actionsByKey[key] || null;
+
+export const getWorkspaceItem = (
+  item: Pick<AgentListItem, "workspacesByKey">,
+  key: string,
+) => item.workspacesByKey[key] || null;
+
+const collectBlueprintSettingsValues = (fields: AgentSettingField[] = []) =>
+  fields.reduce<Record<string, string>>((result, field) => {
+    if (typeof field.value === "string") {
+      result[field.key] = field.value;
+      return result;
     }
-  })
-
-const createDomainParts = (apiBaseURL = '') => {
-  if (!apiBaseURL) {
-    return { domainPrefix: '', fullDomain: '' }
-  }
-
-  try {
-    const target = new URL(apiBaseURL)
-    return {
-      domainPrefix: target.hostname.split('.')[0] || '',
-      fullDomain: target.hostname,
+    if (field.value == null) {
+      result[field.key] = "";
+      return result;
     }
-  } catch {
-    return { domainPrefix: '', fullDomain: '' }
-  }
-}
+    result[field.key] = String(field.value);
+    return result;
+  }, {});
 
-export const createBlueprintFromAgentItem = (item: AgentListItem): AgentBlueprint => {
-  const { domainPrefix, fullDomain } = createDomainParts(item.apiUrl)
+export const createBlueprintFromAgentItem = (
+  item: AgentListItem,
+): AgentBlueprint => {
+  const apiAccess = getAccessItem(item, "api");
+  const defaultModelOption = getDefaultModelOption(item.template);
 
   return {
     appName: item.name,
     aliasName: item.aliasName || item.name,
     namespace: item.namespace,
-    apiKey: item.apiKey || '后端安全策略：不回显',
-    apiUrl: item.apiUrl,
-    domainPrefix,
-    fullDomain,
+    apiKey: "",
+    apiUrl: apiAccess?.url || "",
+    domainPrefix: "",
+    fullDomain: "",
     image: item.template.image,
     productType: item.templateId,
-    state: item.rawStatus === 'Paused' ? 'Paused' : 'Running',
-    runtimeClassName: 'devbox-runtime',
+    state: item.rawStatus === "Paused" ? "Paused" : "Running",
+    runtimeClassName:
+      item.contract.runtime.runtimeClassName || "devbox-runtime",
     storageLimit: item.storage,
     port: item.template.port,
     cpu: item.cpu,
     memory: item.memory,
     profile: resolveResourcePreset(item.cpu, item.memory),
-    serviceType: 'ClusterIP',
-    protocol: 'TCP',
-    user: item.owner,
-    workingDir: item.template.defaultWorkingDirectory,
-    argsText: item.template.defaultArgs.join(' '),
-    modelProvider: item.modelProvider,
-    modelBaseURL: item.modelBaseURL,
-    model: item.model,
+    serviceType: "ClusterIP",
+    protocol: "TCP",
+    user: item.contract.runtime.user || item.template.user,
+    workingDir: item.workingDir || item.template.workingDir,
+    argsText: item.template.defaultArgs.join(" "),
+    modelProvider: item.modelProvider || defaultModelOption?.provider || "",
+    modelBaseURL: item.modelBaseURL || "",
+    model: item.model || defaultModelOption?.value || "",
     hasModelAPIKey: item.hasModelAPIKey,
-  }
-}
+    keySource: item.keySource,
+    settingsValues: collectBlueprintSettingsValues(
+      item.contract.settings.agent,
+    ),
+  };
+};
+
+const buildAgentListItem = (
+  contract: AgentContract,
+  template: AgentTemplateDefinition,
+  clusterInfo: ClusterInfo | null,
+): AgentListItem => {
+  const accessByKey = indexAccessItems(contract.access);
+  const actionsByKey = indexActionItems(contract.actions);
+  const workspacesByKey = indexWorkspaceItems(contract.workspaces);
+  const status = mapRawStatusToRuntimeStatus(contract.core.status);
+  const apiAccess = accessByKey.api || null;
+  const terminalAccess = accessByKey.terminal || null;
+  const sshAccess = accessByKey.ssh || null;
+  const ideAccess = accessByKey.ide || null;
+  const webUIAccess = accessByKey["web-ui"] || null;
+  const chatAction = actionsByKey["open-chat"] || null;
+  const terminalAction = actionsByKey["open-terminal"] || null;
+  const settingsAction = actionsByKey["open-settings"] || null;
+  const keySource =
+    getSettingFieldStringValue(contract.settings.agent, "keySource") || "unset";
+
+  return {
+    id: contract.core.name,
+    name: contract.core.name,
+    aliasName: contract.core.aliasName || "",
+    namespace: contract.core.namespace || clusterInfo?.namespace || "",
+    owner: clusterInfo?.operator || "Sealos",
+    status,
+    statusText: contract.core.statusText || contract.core.status,
+    updatedAt: contract.core.createdAt || "",
+    cpu: contract.runtime.cpu,
+    memory: contract.runtime.memory,
+    storage: contract.runtime.storage,
+    workingDir: contract.runtime.workingDir || template.workingDir,
+    templateId: template.id,
+    template,
+    contract,
+    workspaces: contract.workspaces,
+    workspacesByKey,
+    access: contract.access,
+    accessByKey,
+    actions: contract.actions,
+    actionsByKey,
+    rawStatus: contract.core.status,
+    modelProvider: contract.runtime.modelProvider || "",
+    modelBaseURL: contract.runtime.modelBaseURL || "",
+    model: contract.runtime.model || "",
+    hasModelAPIKey: Boolean(contract.runtime.hasModelAPIKey),
+    keySource,
+    ready: Boolean(contract.core.ready),
+    bootstrapPhase: contract.core.bootstrapPhase || "",
+    bootstrapMessage: contract.core.bootstrapMessage || "",
+    chatAvailable: Boolean(chatAction?.enabled && apiAccess?.enabled),
+    chatDisabledReason: chatAction?.reason || apiAccess?.reason || "",
+    terminalAvailable: Boolean(
+      terminalAction?.enabled && terminalAccess?.enabled,
+    ),
+    terminalDisabledReason:
+      terminalAction?.reason || terminalAccess?.reason || "",
+    settingsAvailable: Boolean(settingsAction?.enabled),
+    webUIAvailable: Boolean(webUIAccess?.enabled),
+    sshAvailable: Boolean(sshAccess?.enabled),
+    ideAvailable: Boolean(ideAccess?.enabled),
+    apiBaseURL: apiAccess?.url || "",
+    sshAccess,
+    ideAccess,
+    webUIAccess,
+  };
+};
 
 export const mapBackendAgentsToListItems = (
-  items: BackendAgentItem[],
+  items: AgentContract[] = [],
+  templates: AgentTemplateDefinition[] = [],
   clusterInfo: ClusterInfo | null,
-): AgentListItem[] =>
-  (Array.isArray(items) ? items : []).map((item) => {
-    const templateId = resolveTemplateById('hermes-agent').id
-    const template = AGENT_TEMPLATES[templateId]
-    const runtimeStatus = mapRawStatusToRuntimeStatus(item.status)
+): AgentListItem[] => {
+  const templatesById = Object.fromEntries(
+    templates.map((template) => [template.id, template]),
+  ) as Record<string, AgentTemplateDefinition>;
 
-    return {
-      id: item.agentName,
-      name: item.agentName,
-      aliasName: item.aliasName || '',
-      namespace: item.namespace || clusterInfo?.namespace || '',
-      labelId: item.namespace || '--',
-      owner: clusterInfo?.operator || 'Sealos',
-      status: runtimeStatus,
-      statusText: item.status,
-      updatedAt: item.createdAt || '',
-      cpu: item.cpu,
-      memory: item.memory,
-      storage: item.storage,
-      apiUrl: item.apiBaseURL || '',
-      apiKey: '',
-      templateId,
-      template,
-      resourceGroup: {
-        devbox: null,
-        service: null,
-        ingress: null,
-      },
-      rawStatus: item.status,
-      modelProvider: item.modelProvider,
-      modelBaseURL: item.modelBaseURL,
-      model: item.model,
-      hasModelAPIKey: Boolean(item.hasModelAPIKey),
-      chatAvailable: Boolean(item.apiBaseURL),
-      chatDisabledReason: item.apiBaseURL ? '' : '当前实例还没有可用的公网 API 地址。',
-      yaml: {
-        agentName: item.agentName,
-        aliasName: item.aliasName || '',
-        namespace: item.namespace,
-        ingressDomain: item.ingressDomain || '',
-      },
-    }
-  })
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const template = templatesById[item.core.templateId];
+      if (!template) {
+        return null;
+      }
+      return buildAgentListItem(item, template, clusterInfo);
+    })
+    .filter(Boolean) as AgentListItem[];
+};

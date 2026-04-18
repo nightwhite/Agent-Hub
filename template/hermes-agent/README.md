@@ -5,7 +5,7 @@
 目的：
 
 - 不直接依赖官方 `nousresearch/hermes-agent` 镜像
-- 根据 AgentHub 的部署方式裁剪运行时依赖
+- 根据 Agent Hub 的部署方式裁剪运行时依赖
 - 为后续 GitHub Actions 自动构建提供稳定上下文
 
 当前仅建立占位目录，后续再补充：

@@ -1,4 +1,6 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
+
 import { buildChatApiUrl } from './chat'
 import { buildProxyUrl, formatDisplayTime, requestJsonWithAuthRetry, requestMaybeConflictWithAuthRetry } from './shared'
 

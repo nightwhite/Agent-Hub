@@ -1,6 +1,6 @@
 ## 产品说明
 
-AgentHub 是一个运行在 Sealos 内部 App / Launchpad 体系中的 Agent 实例部署与运行控制台。它的目标不是让用户“自己发明一个 Agent”，而是让用户在 Sealos 工作空间内，以尽量少的容器知识，快速创建并运行热门、适合容器化部署的 Agent 实例。
+Agent Hub 是一个运行在 Sealos 内部 App / Launchpad 体系中的 Agent 实例部署与运行控制台。它的目标不是让用户“自己发明一个 Agent”，而是让用户在 Sealos 工作空间内，以尽量少的容器知识，快速创建并运行热门、适合容器化部署的 Agent 实例。
 
 当前产品方向严格基于参考项目现状抽象：应用启动后通过 Sealos Desktop SDK 获取当前用户会话、语言、配额和宿主域名信息，解析当前 workspace 的集群上下文，然后按统一 label 聚合 Devbox、Service、Ingress 三类资源，以“Agent 实例”的视角展示和操作。用户通过右上角“创建”按钮进入模板选择流程，选择模板后进入配置弹窗，提交后统一创建 Devbox / Service / Ingress；部署完成后，用户可以直接复制 API 地址与 Key，或进入“对话”和“终端”入口开始使用。
 
@@ -59,7 +59,7 @@ AgentHub 是一个运行在 Sealos 内部 App / Launchpad 体系中的 Agent 实
 Header 分为左右两部分：
 
 - 左侧：
-  - 产品名称 `AgentHub`
+  - 产品名称 `Agent Hub`
   - 文档按钮
   - 当前 cluster / workspace 上下文提示信息
 - 右侧：
@@ -178,7 +178,7 @@ V1 配置弹窗设计规则：
 
 设计要求：
 
-- 用户无需离开 AgentHub，即可验证实例是否真正能响应
+- 用户无需离开 Agent Hub，即可验证实例是否真正能响应
 - 这个入口是“部署成功后的第一可用证明”
 
 ### 终端弹窗
@@ -205,7 +205,7 @@ V1 配置弹窗设计规则：
 
 ### 流程一：打开应用并查看已有实例
 
-1. 用户从 Sealos 内部打开 AgentHub
+1. 用户从 Sealos 内部打开 Agent Hub
 2. 应用初始化 Sealos Desktop SDK
 3. 应用读取 session、host config、quota 和 kubeconfig
 4. 应用构建当前 workspace 的 cluster context
@@ -268,7 +268,7 @@ V1 配置弹窗设计规则：
 
 | 概念 | 说明 |
 |------|------|
-| Agent 实例 | 用户在 AgentHub 中看到和操作的对象 |
+| Agent 实例 | 用户在 Agent Hub 中看到和操作的对象 |
 | Devbox | 真正承载 Agent 容器运行环境的核心资源 |
 | Service | 为 Agent 容器暴露集群内访问端口 |
 | Ingress | 为 Agent 实例分配外部访问地址 |
@@ -320,4 +320,4 @@ V1 配置弹窗设计规则：
 - 团队成员想验证某个热门 Agent 是否适合当前业务场景，直接在 Sealos 内点“创建”，几分钟内拿到一个可对话、可进入终端的实例
 - 产品或运营同学不懂容器，但需要一个可访问的 Agent 地址和一组可复制的凭据，用于内部测试或演示
 - 技术同学在部署后发现 Agent 行为异常，先在页面里点“对话”验证，再通过“终端”进入容器排查 CLI 和进程
-- 团队准备跟进新的热门 Agent 模板时，只需在现有创建框架中新增模板卡片与 blueprint，而不必推翻整个 AgentHub 的主界面和运行逻辑
+- 团队准备跟进新的热门 Agent 模板时，只需在现有创建框架中新增模板卡片与 blueprint，而不必推翻整个 Agent Hub 的主界面和运行逻辑

@@ -52,6 +52,18 @@ func TestBuildReturnsKubernetesObjects(t *testing.T) {
 	if got := envValue(objects.Devbox, "API_SERVER_KEY"); got != ag.APIServerKey {
 		t.Fatalf("Build() API_SERVER_KEY = %q, want %q", got, ag.APIServerKey)
 	}
+	if got := envValue(objects.Devbox, "HERMES_INFERENCE_PROVIDER"); got != ag.ModelProvider {
+		t.Fatalf("Build() HERMES_INFERENCE_PROVIDER = %q, want %q", got, ag.ModelProvider)
+	}
+	if got := envValue(objects.Devbox, "OPENAI_BASE_URL"); got != ag.ModelBaseURL {
+		t.Fatalf("Build() OPENAI_BASE_URL = %q, want %q", got, ag.ModelBaseURL)
+	}
+	if got := envValue(objects.Devbox, "OPENAI_API_KEY"); got != ag.ModelAPIKey {
+		t.Fatalf("Build() OPENAI_API_KEY = %q, want %q", got, ag.ModelAPIKey)
+	}
+	if got := envValue(objects.Devbox, "AIPROXY_API_KEY"); got != "" {
+		t.Fatalf("Build() AIPROXY_API_KEY = %q, want empty for non-managed provider", got)
+	}
 	if got := objects.Service.Spec.Selector["agent.sealos.io/name"]; got != ag.Name {
 		t.Fatalf("Build() service selector agent.sealos.io/name = %q, want %q", got, ag.Name)
 	}
@@ -61,6 +73,13 @@ func TestBuildReturnsKubernetesObjects(t *testing.T) {
 	}
 	if got := configLabels["agent.sealos.io/name"]; got != ag.Name {
 		t.Fatalf("Build() config label agent.sealos.io/name = %q, want %q", got, ag.Name)
+	}
+	configUser, found, err := unstructured.NestedString(objects.Devbox.Object, "spec", "config", "user")
+	if err != nil || !found {
+		t.Fatalf("Build() config user missing: found=%v err=%v", found, err)
+	}
+	if configUser != "hermes" {
+		t.Fatalf("Build() config user = %q, want hermes", configUser)
 	}
 }
 
@@ -98,6 +117,44 @@ func TestBuildDoesNotLeakIngressAnnotationsToOtherResources(t *testing.T) {
 
 	if got := objects.Ingress.Annotations["nginx.ingress.kubernetes.io/proxy-body-size"]; got != "32m" {
 		t.Fatalf("Build() ingress proxy-body-size = %q, want 32m", got)
+	}
+}
+
+func TestBuildWithManagedAIProxyProviderClearsOpenAIBaseURL(t *testing.T) {
+	t.Parallel()
+
+	ag := agent.Agent{
+		Name:          "managed-aiproxy",
+		Namespace:     "ns-test",
+		CPU:           "1000m",
+		Memory:        "2Gi",
+		Storage:       "10Gi",
+		ModelProvider: "custom:aiproxy-responses",
+		ModelBaseURL:  "https://aiproxy.usw-1.sealos.io/v1",
+		ModelAPIKey:   "secret-key",
+		Model:         "gpt-5.4-mini",
+		APIServerKey:  "generated-api-key",
+	}
+
+	objects, err := Build(ag, BuildOptions{
+		IngressDomain: "managed-aiproxy.agent.usw-1.sealos.app",
+		Image:         "nousresearch/hermes-agent:latest",
+	})
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+
+	if got := envValue(objects.Devbox, "HERMES_INFERENCE_PROVIDER"); got != ag.ModelProvider {
+		t.Fatalf("Build() HERMES_INFERENCE_PROVIDER = %q, want %q", got, ag.ModelProvider)
+	}
+	if got := envValue(objects.Devbox, "OPENAI_BASE_URL"); got != "" {
+		t.Fatalf("Build() OPENAI_BASE_URL = %q, want empty for managed AIProxy provider", got)
+	}
+	if got := envValue(objects.Devbox, "AIPROXY_API_KEY"); got != ag.ModelAPIKey {
+		t.Fatalf("Build() AIPROXY_API_KEY = %q, want %q", got, ag.ModelAPIKey)
+	}
+	if got := envValue(objects.Devbox, "OPENAI_API_KEY"); got != "" {
+		t.Fatalf("Build() OPENAI_API_KEY = %q, want empty for managed AIProxy provider", got)
 	}
 }
 

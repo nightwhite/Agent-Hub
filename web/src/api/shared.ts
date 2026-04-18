@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
 
 export const formatDisplayTime = (value) => {
@@ -128,8 +129,6 @@ export const isUnauthorizedError = (error) => error?.status === 401
 
 const buildHeaders = (clusterContext) => {
   const encodedKubeconfig = encodeHeaderValue(clusterContext?.kubeconfig || '')
-  const encodedDesktopToken = encodeHeaderValue(clusterContext?.sessionToken || '')
-  const encodedClusterServer = encodeHeaderValue(clusterContext?.server || '')
   const headers = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
@@ -137,14 +136,6 @@ const buildHeaders = (clusterContext) => {
 
   if (encodedKubeconfig) {
     headers.Authorization = encodedKubeconfig
-  }
-
-  if (encodedDesktopToken) {
-    headers['Authorization-Bearer'] = encodedDesktopToken
-  }
-
-  if (encodedClusterServer) {
-    headers['X-K8s-Server'] = encodedClusterServer
   }
 
   return headers
@@ -246,6 +237,6 @@ export const parseContentDispositionFilename = (value = '') => {
     }
   }
 
-  const asciiMatch = value.match(/filename=\"?([^\";]+)\"?/i)
+  const asciiMatch = value.match(/filename="?([^";]+)"?/i)
   return asciiMatch?.[1] || ''
 }

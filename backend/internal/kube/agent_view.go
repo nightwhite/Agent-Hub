@@ -28,6 +28,17 @@ func DevboxToAgentView(devbox *unstructured.Unstructured) (AgentView, error) {
 	}
 
 	annotations := devbox.GetAnnotations()
+	templateID := strings.TrimSpace(annotations[annotationTemplateID])
+	if templateID == "" {
+		templateID = strings.TrimSpace(devbox.GetLabels()["app.kubernetes.io/name"])
+	}
+	if templateID == "" {
+		return AgentView{}, fmt.Errorf("devbox %q is missing template id metadata", name)
+	}
+	bootstrapPhase := ""
+	if rawPhase := strings.TrimSpace(annotations[annotationBootstrapPhase]); rawPhase != "" {
+		bootstrapPhase = normalizeBootstrapPhase(rawPhase)
+	}
 	createdAt := devbox.GetCreationTimestamp().Format(time.RFC3339)
 	if ts, found, _ := unstructured.NestedString(devbox.Object, "metadata", "creationTimestamp"); found && strings.TrimSpace(ts) != "" {
 		createdAt = ts
@@ -37,26 +48,54 @@ func DevboxToAgentView(devbox *unstructured.Unstructured) (AgentView, error) {
 	memory, _, _ := unstructured.NestedString(devbox.Object, "spec", "resource", "memory")
 	storage, _, _ := unstructured.NestedString(devbox.Object, "spec", "storageLimit")
 	state, _, _ := unstructured.NestedString(devbox.Object, "spec", "state")
+	runtimeClassName, _, _ := unstructured.NestedString(devbox.Object, "spec", "runtimeClassName")
+	networkType, _, _ := unstructured.NestedString(devbox.Object, "spec", "network", "type")
+	modelProvider := strings.TrimSpace(annotations[annotationModelProvider])
+	modelAPIKey := resolveModelAPIKey(devbox, modelProvider)
 
 	view := AgentView{
 		Agent: agent.Agent{
-			Name:          name,
-			AliasName:     strings.TrimSpace(annotations["agent.sealos.io/alias-name"]),
-			Namespace:     namespace,
-			CPU:           strings.TrimSpace(cpu),
-			Memory:        strings.TrimSpace(memory),
-			Storage:       strings.TrimSpace(storage),
-			ModelProvider: strings.TrimSpace(annotations["agent.sealos.io/model-provider"]),
-			ModelBaseURL:  strings.TrimSpace(annotations["agent.sealos.io/model-baseurl"]),
-			Model:         strings.TrimSpace(annotations["agent.sealos.io/model"]),
-			ModelAPIKey:   envValue(devbox, "AGENT_MODEL_APIKEY"),
-			APIServerKey:  envValue(devbox, "API_SERVER_KEY"),
-			Status:        stateToStatus(state),
+			Name:             name,
+			TemplateID:       templateID,
+			AliasName:        strings.TrimSpace(annotations[annotationAliasName]),
+			Namespace:        namespace,
+			CPU:              strings.TrimSpace(cpu),
+			Memory:           strings.TrimSpace(memory),
+			Storage:          strings.TrimSpace(storage),
+			RuntimeClassName: strings.TrimSpace(runtimeClassName),
+			WorkingDir:       workingDir(devbox),
+			User:             userName(devbox),
+			NetworkType:      strings.TrimSpace(networkType),
+			SSHPort:          sshPort(devbox),
+			ModelProvider:    modelProvider,
+			ModelBaseURL:     strings.TrimSpace(annotations[annotationModelBaseURL]),
+			Model:            strings.TrimSpace(annotations[annotationModel]),
+			ModelAPIKey:      modelAPIKey,
+			APIServerKey:     envValue(devbox, "API_SERVER_KEY"),
+			BootstrapPhase:   bootstrapPhase,
+			BootstrapMessage: strings.TrimSpace(annotations[annotationBootstrapMessage]),
+			Ready:            bootstrapPhase == "" || bootstrapPhase == BootstrapPhaseReady,
+			Status:           stateToStatus(state),
+			Annotations:      cloneMap(annotations),
+			Env:              envMap(devbox),
 		},
 		CreatedAt: createdAt,
 	}
 
 	return view, nil
+}
+
+func resolveModelAPIKey(devbox *unstructured.Unstructured, modelProvider string) string {
+	primary := strings.TrimSpace(envValue(devbox, "AGENT_MODEL_APIKEY"))
+	if primary != "" {
+		return primary
+	}
+
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelProvider)), "custom:aiproxy-") {
+		return strings.TrimSpace(envValue(devbox, "AIPROXY_API_KEY"))
+	}
+
+	return strings.TrimSpace(envValue(devbox, "OPENAI_API_KEY"))
 }
 
 func IngressDomain(ingress *networkingv1.Ingress) string {
@@ -121,6 +160,55 @@ func envValue(devbox *unstructured.Unstructured, name string) string {
 	return ""
 }
 
+func envMap(devbox *unstructured.Unstructured) map[string]string {
+	envs, found, _ := unstructured.NestedSlice(devbox.Object, "spec", "config", "env")
+	if !found {
+		return map[string]string{}
+	}
+
+	result := make(map[string]string, len(envs))
+	for _, item := range envs {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		name := strings.TrimSpace(fmt.Sprint(m["name"]))
+		if name == "" {
+			continue
+		}
+		value, exists := m["value"]
+		if !exists || value == nil {
+			result[name] = ""
+			continue
+		}
+		result[name] = strings.TrimSpace(fmt.Sprint(value))
+	}
+	return result
+}
+
+func workingDir(devbox *unstructured.Unstructured) string {
+	value, _, _ := unstructured.NestedString(devbox.Object, "spec", "config", "workingDir")
+	return strings.TrimSpace(value)
+}
+
+func userName(devbox *unstructured.Unstructured) string {
+	value, _, _ := unstructured.NestedString(devbox.Object, "spec", "config", "user")
+	return strings.TrimSpace(value)
+}
+
+func sshPort(devbox *unstructured.Unstructured) int32 {
+	networkType, _, _ := unstructured.NestedString(devbox.Object, "spec", "network", "type")
+	if strings.EqualFold(strings.TrimSpace(networkType), "SSHGate") {
+		return 2233
+	}
+
+	value, found, _ := unstructured.NestedInt64(devbox.Object, "status", "network", "nodePort")
+	if !found || value <= 0 {
+		return 0
+	}
+	return int32(value)
+}
+
 func SetEnvValue(devbox *unstructured.Unstructured, name, value string) error {
 	envs, found, _ := unstructured.NestedSlice(devbox.Object, "spec", "config", "env")
 	if !found {
@@ -164,7 +252,18 @@ func HasManagedLabel(obj map[string]string, agentName string) bool {
 	if obj == nil {
 		return false
 	}
-	return strings.TrimSpace(obj["agent.sealos.io/name"]) == agentName && strings.TrimSpace(obj["app.kubernetes.io/name"]) == "hermes-agent"
+	return strings.TrimSpace(obj["agent.sealos.io/name"]) == agentName && strings.TrimSpace(obj["agent.sealos.io/managed-by"]) == managedByValue
+}
+
+func cloneMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return map[string]string{}
+	}
+	result := make(map[string]string, len(input))
+	for key, value := range input {
+		result[key] = value
+	}
+	return result
 }
 
 func SortViewsByCreatedAtDesc(items []AgentView) {

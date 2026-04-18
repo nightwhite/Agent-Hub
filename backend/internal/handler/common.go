@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -48,6 +49,9 @@ func writeHeaderKubeconfigError(c *gin.Context, err *appErr.AppError) {
 }
 
 func writeKubernetesError(c *gin.Context, err error, message string) {
+	if err != nil {
+		log.Printf("%s: %v", message, err)
+	}
 	if apierrors.IsNotFound(err) {
 		writeAppError(c, http.StatusNotFound, appErr.New(appErr.CodeNotFound, message))
 		return

@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -45,6 +46,7 @@ func EnsureAIProxyToken(c *gin.Context) {
 	}
 
 	resolvedBaseURL := resolveAIProxyBaseURL(runtimeConfig(c).AIProxyBaseURL, factory.ClusterServer())
+	resolvedAuth := strings.TrimSpace(c.GetHeader(kube.DefaultAuthorizationHeader))
 	client, clientErr := aiproxy.NewClient(resolvedBaseURL, nil)
 	if clientErr != nil {
 		writeAppError(c, http.StatusInternalServerError, appErr.New(appErr.CodeAIProxyOperation, "invalid aiproxy base url").WithDetails(map[string]any{
@@ -58,7 +60,7 @@ func EnsureAIProxyToken(c *gin.Context) {
 	token, existed, resolvedTokenName, ensureErr := ensureAgentHubAIProxyToken(
 		c.Request.Context(),
 		client,
-		strings.TrimSpace(c.GetHeader(kube.DefaultAuthorizationHeader)),
+		resolvedAuth,
 		factory.Namespace(),
 		req.Name,
 	)
@@ -67,11 +69,13 @@ func EnsureAIProxyToken(c *gin.Context) {
 			"name":       resolvedTokenName,
 			"baseURL":    resolvedBaseURL,
 			"clusterURL": factory.ClusterServer(),
+			"reason":     ensureErr.Error(),
 		}
 		if apiErr, ok := ensureErr.(*aiproxy.APIError); ok {
 			details["upstreamStatus"] = apiErr.Status
 			details["upstreamMessage"] = apiErr.Message
 		}
+		log.Printf("aiproxy ensure token failed: name=%s baseURL=%s clusterURL=%s err=%v details=%v", resolvedTokenName, resolvedBaseURL, factory.ClusterServer(), ensureErr, details)
 		writeAppError(c, http.StatusBadGateway, appErr.New(appErr.CodeAIProxyOperation, "failed to ensure aiproxy token").WithDetails(details))
 		return
 	}

@@ -1,10 +1,13 @@
-import { Plus } from 'lucide-react'
+import { BookOpen, LayoutTemplate, Plus } from 'lucide-react'
 import { Button } from '../../../../components/ui/Button'
 import { SearchField } from '../../../../components/ui/SearchField'
+import { APP_NAME } from '../../../../branding'
 
 interface AgentHubHeaderProps {
   keyword: string
   operator: string
+  namespace?: string
+  onBrowseTemplates?: () => void
   onCreate: () => void
   onKeywordChange: (value: string) => void
 }
@@ -12,32 +15,41 @@ interface AgentHubHeaderProps {
 export function AgentHubHeader({
   keyword,
   operator,
+  namespace,
+  onBrowseTemplates,
   onCreate,
   onKeywordChange,
 }: AgentHubHeaderProps) {
-  return (
-    <header className="sticky top-0 z-30 border-b border-white/70 bg-white/85 backdrop-blur">
-      <div className="mx-auto flex h-20 max-w-[1240px] items-center justify-between px-6">
-        <div className="flex items-center gap-4">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--color-brand)] text-lg font-bold text-white">
-            A
-          </div>
-          <div>
-            <div className="text-lg font-semibold text-slate-950">AgentHub</div>
-            <div className="mt-1 text-sm text-slate-500">Workspace: {operator}</div>
-          </div>
-        </div>
+  const workspaceLabel = namespace ? `工作区 ${namespace}` : `${operator} 工作区`
 
-        <div className="flex items-center gap-4">
-          <SearchField
-            onChange={(event) => onKeywordChange(event.target.value)}
-            placeholder="搜索实例名称、命名空间、模板或模型..."
-            value={keyword}
-          />
-          <Button leading={<Plus size={18} />} onClick={onCreate}>
-            创建 Agent
-          </Button>
+  return (
+    <header className="flex h-24 w-full flex-shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2.5">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="truncate text-2xl/8 font-semibold tracking-[-0.02em] text-zinc-950">
+          {APP_NAME}
         </div>
+        <div className="hidden min-w-0 items-center gap-2 text-blue-600 sm:flex">
+          <BookOpen className="h-4 w-4 shrink-0" />
+          <span className="truncate text-sm/5 font-medium">{workspaceLabel}</span>
+        </div>
+      </div>
+
+      <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-2 !overflow-visible sm:w-auto sm:flex-nowrap sm:gap-3">
+        <SearchField
+          className="min-w-[220px] flex-1 sm:w-64 sm:flex-none"
+          onChange={(event) => onKeywordChange(event.target.value)}
+          placeholder="搜索别名或实例名"
+          value={keyword}
+        />
+        {onBrowseTemplates ? (
+          <Button className="h-10" onClick={onBrowseTemplates} size="md" variant="secondary">
+            <LayoutTemplate className="h-4 w-4" />
+            浏览模板
+          </Button>
+        ) : null}
+        <Button className="h-10" leading={<Plus className="h-4 w-4" />} onClick={onCreate} size="md">
+          创建 Agent
+        </Button>
       </div>
     </header>
   )

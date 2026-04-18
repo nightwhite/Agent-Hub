@@ -34,6 +34,19 @@ export const formatStorage = (value = '') => {
   return normalized
 }
 
-export const formatTime = (value = '') => value || '--'
+const padTimeUnit = (value: number) => String(value).padStart(2, '0')
+
+export const formatTime = (value = '') => {
+  const normalized = String(value || '').trim()
+  if (!normalized) return '--'
+
+  const target = new Date(normalized)
+  if (Number.isNaN(target.getTime())) return normalized
+
+  return [
+    `${target.getFullYear()}/${padTimeUnit(target.getMonth() + 1)}/${padTimeUnit(target.getDate())}`,
+    `${padTimeUnit(target.getHours())}:${padTimeUnit(target.getMinutes())}`,
+  ].join(' ')
+}
 
 export const cn = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' ')

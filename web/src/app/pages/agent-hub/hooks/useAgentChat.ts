@@ -1,19 +1,7 @@
 import { useCallback, useState } from 'react'
 import { streamAgentChatCompletions } from '../../../../api'
+import type { ChatStreamEvent } from '../../../../api/backend'
 import type { AgentListItem, ChatMessage, ChatSessionState, ClusterContext } from '../../../../domains/agents/types'
-
-type ChatStreamEvent = {
-  type: string
-  transport: string
-  payload?: {
-    choices?: Array<{
-      delta?: { content?: string }
-      message?: { content?: string }
-    }>
-    content?: string
-    message?: string
-  }
-}
 
 const createChatSession = (resource: AgentListItem): ChatSessionState => ({
   resource,
@@ -49,7 +37,7 @@ export function useAgentChat({
   const openChat = useCallback(
     (item: AgentListItem) => {
       if (!clusterContext) {
-        onErrorMessage('缺少集群上下文，无法发起对话。')
+        onErrorMessage('当前工作区还没准备好，暂时无法发起对话。')
         return
       }
 
@@ -82,6 +70,14 @@ export function useAgentChat({
 
     const draft = chatSession.draft.trim()
     if (!draft) return
+    if (!chatSession.resource.model) {
+      updateChatSession((current) => ({
+        ...current,
+        status: 'error',
+        error: '当前 Agent 没有显式模型配置，无法发起对话。',
+      }))
+      return
+    }
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -105,7 +101,7 @@ export function useAgentChat({
         {
           agentName: chatSession.resource.name,
           payload: {
-            model: chatSession.resource.model || 'gpt-4o-mini',
+            model: chatSession.resource.model,
             stream: true,
             messages: baseMessages.map(({ role, content }) => ({ role, content })),
           },
@@ -121,11 +117,19 @@ export function useAgentChat({
             }
 
             if (event.type === 'message') {
+              const payload = (event.payload || {}) as {
+                choices?: Array<{
+                  delta?: { content?: string }
+                  message?: { content?: string }
+                }>
+                content?: string
+                message?: string
+              }
               const chunk =
-                event.payload?.choices?.[0]?.delta?.content ||
-                event.payload?.choices?.[0]?.message?.content ||
-                event.payload?.content ||
-                event.payload?.message ||
+                payload.choices?.[0]?.delta?.content ||
+                payload.choices?.[0]?.message?.content ||
+                payload.content ||
+                payload.message ||
                 ''
 
               if (!chunk) return

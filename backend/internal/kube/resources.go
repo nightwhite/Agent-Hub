@@ -75,9 +75,9 @@ func Build(agentSpec agent.Agent, options BuildOptions) (ResourceObjects, error)
 }
 
 func buildManifestTemplateData(agentSpec agent.Agent, options BuildOptions) manifestTemplateData {
-	labels := Labels(agentSpec.Name)
+	labels := Labels(agentSpec)
 	selectorLabels := managedSelectorLabels(agentSpec.Name)
-	devboxAnnotations := cloneStringMap(Annotations(agentSpec.AliasName, agentSpec.ModelProvider, agentSpec.ModelBaseURL, agentSpec.Model))
+	devboxAnnotations := cloneStringMap(Annotations(agentSpec))
 	serviceAnnotations := cloneStringMap(devboxAnnotations)
 	ingressAnnotations := cloneStringMap(devboxAnnotations)
 
