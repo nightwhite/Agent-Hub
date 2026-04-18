@@ -17,6 +17,7 @@ type TerminalOutputListener = (chunk: string) => void
 const fallbackTerminalCwd = '/opt/hermes'
 const maxBufferedOutputChunks = 200
 const reconnectDelaySchedule = [600, 1200, 2400, 5000]
+const maxReconnectAttempts = 6
 
 const createTerminalSession = (
   resource: AgentListItem,
@@ -310,6 +311,24 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
 
       const nextAttempt = reconnectAttemptsRef.current + 1
       reconnectAttemptsRef.current = nextAttempt
+
+      if (nextAttempt > maxReconnectAttempts) {
+        const message = '终端连接多次重试失败，请手动重新连接。'
+        clearReconnectTimer()
+        syncSession((session) =>
+          session
+            ? {
+                ...session,
+                status: 'error',
+                error: message,
+              }
+            : session,
+        )
+        emitOutput(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
+        onErrorMessage?.(message)
+        return
+      }
+
       const delay = reconnectDelaySchedule[Math.min(nextAttempt - 1, reconnectDelaySchedule.length - 1)]
 
       clearReconnectTimer()

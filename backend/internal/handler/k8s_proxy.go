@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"crypto/tls"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -14,7 +13,7 @@ import (
 	"github.com/nightwhite/Agent-Hub/internal/kube"
 )
 
-var insecureK8sProxyTransport = &http.Transport{
+var secureK8sProxyTransport = &http.Transport{
 	Proxy: http.ProxyFromEnvironment,
 	DialContext: (&net.Dialer{
 		Timeout:   30 * time.Second,
@@ -25,9 +24,6 @@ var insecureK8sProxyTransport = &http.Transport{
 	IdleConnTimeout:       90 * time.Second,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: time.Second,
-	TLSClientConfig: &tls.Config{
-		InsecureSkipVerify: true,
-	},
 }
 
 type kubeStatus struct {
@@ -56,7 +52,7 @@ func KubernetesProxy(c *gin.Context) {
 	}
 
 	proxy := &httputil.ReverseProxy{
-		Transport:     insecureK8sProxyTransport,
+		Transport:     secureK8sProxyTransport,
 		FlushInterval: -1,
 		Director: func(req *http.Request) {
 			target := targetURL.ResolveReference(&url.URL{
@@ -95,17 +91,12 @@ func resolveK8sProxyTarget(request *http.Request) string {
 		return ""
 	}
 
-	if queryServer := strings.TrimSpace(request.URL.Query().Get("k8sServer")); queryServer != "" {
-		return queryServer
-	}
-
 	if parsed, err := kube.ParseProxyAuthFromEncodedKubeconfig(request.Header.Get(kube.DefaultAuthorizationHeader)); err == nil {
 		if parsed.Server != "" {
 			return parsed.Server
 		}
 	}
-
-	return decodeHeaderScalar(request.Header.Get("X-K8s-Server"))
+	return ""
 }
 
 func resolveK8sProxyBearerToken(request *http.Request) string {
@@ -118,12 +109,7 @@ func resolveK8sProxyBearerToken(request *http.Request) string {
 			return parsed.Token
 		}
 	}
-
-	if headerToken := decodeHeaderScalar(request.Header.Get("Authorization-Bearer")); headerToken != "" {
-		return headerToken
-	}
-
-	return strings.TrimSpace(request.URL.Query().Get("k8sToken"))
+	return ""
 }
 
 func decodeHeaderScalar(value string) string {

@@ -410,7 +410,7 @@ func generateSSHAccessToken(namespace, agentName string, secret []byte, now time
 		"namespace":  namespace,
 		"devboxName": agentName,
 		"iat":        now.Unix(),
-		"exp":        now.Add(365 * 24 * time.Hour).Unix(),
+		"exp":        now.Add(24 * time.Hour).Unix(),
 	})
 	if err != nil {
 		return "", err
