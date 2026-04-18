@@ -329,7 +329,7 @@ func waitForAgentPod(ctx context.Context, clientset kubernetes.Interface, factor
 	}
 }
 
-func normalizeHermesProvider(provider, baseURL string) string {
+func normalizeHermesProvider(provider string) string {
 	normalized := strings.ToLower(strings.TrimSpace(provider))
 	if normalized == "" {
 		return "auto"

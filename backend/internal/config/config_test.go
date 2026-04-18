@@ -105,3 +105,18 @@ func TestLoadNormalizesLegacyAIProxyBaseURLToSealosIO(t *testing.T) {
 		t.Fatalf("Load().AIProxyBaseURL = %q, want https://aiproxy-web.usw-1.sealos.io", cfg.AIProxyBaseURL)
 	}
 }
+
+func TestLoadParsesK8sProxyAllowedHostsFromEnv(t *testing.T) {
+	t.Setenv("K8S_PROXY_ALLOWED_HOSTS", ".sealos.io, usw-1.sealos.run,")
+
+	cfg := Load()
+	if len(cfg.K8sProxyAllowHosts) != 2 {
+		t.Fatalf("Load().K8sProxyAllowHosts len = %d, want 2", len(cfg.K8sProxyAllowHosts))
+	}
+	if cfg.K8sProxyAllowHosts[0] != ".sealos.io" {
+		t.Fatalf("Load().K8sProxyAllowHosts[0] = %q, want .sealos.io", cfg.K8sProxyAllowHosts[0])
+	}
+	if cfg.K8sProxyAllowHosts[1] != "usw-1.sealos.run" {
+		t.Fatalf("Load().K8sProxyAllowHosts[1] = %q, want usw-1.sealos.run", cfg.K8sProxyAllowHosts[1])
+	}
+}

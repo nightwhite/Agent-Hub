@@ -1113,7 +1113,7 @@ func syncDevboxModelAccessEnv(devbox *unstructured.Unstructured) {
 	}
 
 	apiKey := readDevboxEnvValue(devbox, "AGENT_MODEL_APIKEY")
-	hermesProvider := normalizeHermesProvider(modelProvider, modelBaseURL)
+	hermesProvider := normalizeHermesProvider(modelProvider)
 	_ = kube.SetEnvValue(devbox, "HERMES_INFERENCE_PROVIDER", hermesProvider)
 
 	if isAIProxyHermesProvider(hermesProvider) {

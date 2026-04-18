@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nightwhite/Agent-Hub/internal/agent"
@@ -14,12 +15,29 @@ import (
 	"github.com/nightwhite/Agent-Hub/internal/kube"
 )
 
+const sshAccessTokenTTL = 1 * time.Hour
+
+var templateDefinitionCache sync.Map
+
 func resolveTemplateDefinition(cfg config.Config, templateID string) (agenttemplate.Definition, error) {
 	templateID = strings.TrimSpace(templateID)
 	if templateID == "" {
 		return agenttemplate.Definition{}, fmt.Errorf("template id is required")
 	}
-	return agenttemplate.Resolve(templateID, cfg.AgentTemplateDir)
+
+	cacheKey := strings.TrimSpace(cfg.AgentTemplateDir) + "::" + templateID
+	if cached, ok := templateDefinitionCache.Load(cacheKey); ok {
+		if definition, typed := cached.(agenttemplate.Definition); typed {
+			return definition, nil
+		}
+	}
+
+	definition, err := agenttemplate.Resolve(templateID, cfg.AgentTemplateDir)
+	if err != nil {
+		return agenttemplate.Definition{}, err
+	}
+	templateDefinitionCache.Store(cacheKey, definition)
+	return definition, nil
 }
 
 func buildAgentContract(view kube.AgentView, templateDef agenttemplate.Definition, cfg config.Config) dto.AgentContract {
@@ -410,7 +428,7 @@ func generateSSHAccessToken(namespace, agentName string, secret []byte, now time
 		"namespace":  namespace,
 		"devboxName": agentName,
 		"iat":        now.Unix(),
-		"exp":        now.Add(24 * time.Hour).Unix(),
+		"exp":        now.Add(sshAccessTokenTTL).Unix(),
 	})
 	if err != nil {
 		return "", err

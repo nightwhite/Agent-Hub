@@ -118,6 +118,11 @@ func waitForTemplateHealthcheck(
 	agentName string,
 	templateDef agenttemplate.Definition,
 ) error {
+	healthcheckScript, err := readTemplateScript(templateDef.Healthcheck.Script, templateDef.HealthcheckScriptPath())
+	if err != nil {
+		return err
+	}
+
 	deadline := time.Now().Add(time.Duration(templateDef.Healthcheck.TimeoutSeconds) * time.Second)
 	var lastErr error
 
@@ -131,13 +136,13 @@ func waitForTemplateHealthcheck(
 		}
 
 		attemptCtx, cancel := context.WithTimeout(ctx, minDuration(remaining, 10*time.Second))
-		lastErr = executeTemplateScript(
+		lastErr = executeTemplateScriptContent(
 			attemptCtx,
 			clientset,
 			factory,
 			agentName,
 			templateDef.Healthcheck.Script,
-			templateDef.HealthcheckScriptPath(),
+			healthcheckScript,
 			0,
 		)
 		cancel()
@@ -162,11 +167,39 @@ func executeTemplateScript(
 	scriptPath string,
 	timeoutSeconds int,
 ) error {
-	raw, err := os.ReadFile(scriptPath)
+	raw, err := readTemplateScript(scriptName, scriptPath)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", scriptName, err)
+		return err
 	}
 
+	return executeTemplateScriptContent(
+		ctx,
+		clientset,
+		factory,
+		agentName,
+		scriptName,
+		raw,
+		timeoutSeconds,
+	)
+}
+
+func readTemplateScript(scriptName, scriptPath string) ([]byte, error) {
+	raw, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", scriptName, err)
+	}
+	return raw, nil
+}
+
+func executeTemplateScriptContent(
+	ctx context.Context,
+	clientset kubernetes.Interface,
+	factory *kube.Factory,
+	agentName string,
+	scriptName string,
+	raw []byte,
+	timeoutSeconds int,
+) error {
 	execCtx := ctx
 	var cancel context.CancelFunc
 	if timeoutSeconds > 0 {

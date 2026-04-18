@@ -17,6 +17,7 @@ type Config struct {
 	AIProxyBaseURL      string
 	AIProxyModelBaseURL string
 	Region              string
+	K8sProxyAllowHosts  []string
 	WSAllowedOrigins    string
 }
 
@@ -38,6 +39,7 @@ func Load() Config {
 		AIProxyBaseURL:      aiProxyManagerBaseURL,
 		AIProxyModelBaseURL: strings.TrimSpace(os.Getenv("AIPROXY_MODEL_BASE_URL")),
 		Region:              resolveRegion(),
+		K8sProxyAllowHosts:  parseCSV(getenv("K8S_PROXY_ALLOWED_HOSTS", ".sealos.io,.sealos.run")),
 		WSAllowedOrigins:    getenv("WS_ALLOWED_ORIGINS", ""),
 	}
 }
@@ -59,6 +61,19 @@ func getenv(key, fallback string) string {
 
 func resolveRegion() string {
 	return normalizeRegion(strings.TrimSpace(os.Getenv("REGION")))
+}
+
+func parseCSV(value string) []string {
+	parts := strings.Split(strings.TrimSpace(value), ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.ToLower(strings.TrimSpace(part))
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
 }
 
 func normalizeRegion(value string) string {

@@ -37,6 +37,7 @@ type kubeStatus struct {
 }
 
 func KubernetesProxy(c *gin.Context) {
+	cfg := runtimeConfig(c)
 	targetBase := strings.TrimSpace(resolveK8sProxyTarget(c.Request))
 	bearerToken := strings.TrimSpace(resolveK8sProxyBearerToken(c.Request))
 
@@ -48,6 +49,10 @@ func KubernetesProxy(c *gin.Context) {
 	targetURL, err := url.Parse(targetBase)
 	if err != nil || strings.TrimSpace(targetURL.Scheme) == "" || strings.TrimSpace(targetURL.Host) == "" {
 		writeK8sProxyStatus(c, http.StatusBadGateway, "Bad Gateway", "BadGateway")
+		return
+	}
+	if !isAllowedK8sProxyTarget(targetURL, cfg.K8sProxyAllowHosts) {
+		writeK8sProxyStatus(c, http.StatusForbidden, "target kubernetes api server is not allowed", "Forbidden")
 		return
 	}
 
@@ -123,6 +128,35 @@ func decodeHeaderScalar(value string) string {
 		return trimmed
 	}
 	return strings.TrimSpace(decoded)
+}
+
+func isAllowedK8sProxyTarget(target *url.URL, allowHosts []string) bool {
+	if target == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(target.Scheme), "https") {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(target.Hostname()))
+	if host == "" {
+		return false
+	}
+	for _, item := range allowHosts {
+		pattern := strings.ToLower(strings.TrimSpace(item))
+		if pattern == "" {
+			continue
+		}
+		if strings.HasPrefix(pattern, ".") {
+			if host == strings.TrimPrefix(pattern, ".") || strings.HasSuffix(host, pattern) {
+				return true
+			}
+			continue
+		}
+		if host == pattern {
+			return true
+		}
+	}
+	return false
 }
 
 func proxyPath(requestPath string) string {
