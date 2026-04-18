@@ -54,6 +54,7 @@ export function AgentTerminalWorkspace({
   session,
   onOpen,
   onReady,
+  onError,
   onInput,
   onResize,
   onAttachOutput,
@@ -65,6 +66,7 @@ export function AgentTerminalWorkspace({
   const inputHandlerRef = useRef(onInput)
   const resizeHandlerRef = useRef(onResize)
   const readyHandlerRef = useRef(onReady)
+  const errorHandlerRef = useRef(onError)
   const detachOutputRef = useRef<(() => void) | null>(null)
   const connectedTerminalIdRef = useRef('')
   const announcedStateRef = useRef('')
@@ -80,6 +82,10 @@ export function AgentTerminalWorkspace({
   useEffect(() => {
     readyHandlerRef.current = onReady
   }, [onReady])
+
+  useEffect(() => {
+    errorHandlerRef.current = onError
+  }, [onError])
 
   useEffect(() => {
     connectedTerminalIdRef.current = ''
@@ -171,6 +177,7 @@ export function AgentTerminalWorkspace({
     if (session.status === 'error' && session.error && announcedStateRef.current !== `error:${session.error}`) {
       announcedStateRef.current = `error:${session.error}`
       terminalRef.current.writeln(`\r\n\x1b[31m${session.error}\x1b[0m`)
+      errorHandlerRef.current?.(session.error)
       return
     }
 
