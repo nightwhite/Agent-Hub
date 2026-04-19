@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"crypto/sha256"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -9,6 +11,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
@@ -22,6 +26,7 @@ import (
 
 	"github.com/nightwhite/Agent-Hub/internal/agent"
 	"github.com/nightwhite/Agent-Hub/internal/agenttemplate"
+	"github.com/nightwhite/Agent-Hub/internal/config"
 	"github.com/nightwhite/Agent-Hub/internal/dto"
 	"github.com/nightwhite/Agent-Hub/internal/kube"
 	"github.com/nightwhite/Agent-Hub/internal/random"
@@ -41,20 +46,35 @@ func ListAgents(c *gin.Context) {
 	if !ok {
 		return
 	}
-
-	devboxes, kErr := repo.List(ctx, kube.ManagedListSelector())
-	if kErr != nil {
-		writeKubernetesError(c, kErr, "failed to list agents")
+	cacheKey := buildAgentListCacheKey(factory, c.GetHeader(kube.DefaultAuthorizationHeader))
+	if cached, ok := readCachedAgentList(cacheKey); ok {
+		writeSuccess(c, http.StatusOK, cached)
 		return
 	}
 
-	latestPodsByAgent, podErr := listLatestAgentPods(ctx, clientset, factory.Namespace())
-	if podErr != nil {
-		writeKubernetesError(c, podErr, "failed to list agent pods")
+	var (
+		devboxes             *unstructured.UnstructuredList
+		ingressDomainsByAgent map[string]string
+		devboxErr            error
+		ingressErr           error
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		devboxes, devboxErr = repo.List(ctx, kube.ManagedListSelector())
+	}()
+	go func() {
+		defer wg.Done()
+		ingressDomainsByAgent, ingressErr = listManagedIngressDomains(ctx, clientset, factory.Namespace())
+	}()
+	wg.Wait()
+
+	if devboxErr != nil {
+		writeKubernetesError(c, devboxErr, "failed to list agents")
 		return
 	}
-
-	ingressDomainsByAgent, ingressErr := listManagedIngressDomains(ctx, clientset, factory.Namespace())
 	if ingressErr != nil {
 		writeKubernetesError(c, ingressErr, "failed to list agent ingresses")
 		return
@@ -72,7 +92,7 @@ func ListAgents(c *gin.Context) {
 			writeAppError(c, http.StatusInternalServerError, appErr.New(appErr.CodeKubernetesOperation, convErr.Error()))
 			return
 		}
-		enrichAgentRuntimeStatusWithPod(&item, &view, latestPodsByAgent[view.Agent.Name])
+		view.Agent.Status = resolveAgentRuntimeStatusFromPod(&item, nil)
 		view.Agent.IngressDomain = ingressDomainsByAgent[view.Agent.Name]
 		views = append(views, view)
 	}
@@ -95,11 +115,63 @@ func ListAgents(c *gin.Context) {
 		items = append(items, buildAgentContract(view, templateDef, cfg))
 	}
 
-	writeSuccess(c, http.StatusOK, dto.AgentListResponse{
+	response := dto.AgentListResponse{
 		Items: items,
 		Total: len(items),
 		Meta:  map[string]any{"namespace": factory.Namespace()},
-	})
+	}
+	writeCachedAgentList(cacheKey, response)
+	writeSuccess(c, http.StatusOK, response)
+}
+
+const agentListCacheTTL = 2 * time.Second
+
+type cachedAgentList struct {
+	response  dto.AgentListResponse
+	expiresAt time.Time
+}
+
+var (
+	agentListCacheMu sync.RWMutex
+	agentListCache   = map[string]cachedAgentList{}
+)
+
+func buildAgentListCacheKey(factory *kube.Factory, authorization string) string {
+	hash := sha256.Sum256([]byte(strings.TrimSpace(authorization)))
+	return strings.TrimSpace(factory.ClusterServer()) + "|" + factory.Namespace() + "|" + hex.EncodeToString(hash[:])
+}
+
+func readCachedAgentList(key string) (dto.AgentListResponse, bool) {
+	if strings.TrimSpace(key) == "" {
+		return dto.AgentListResponse{}, false
+	}
+
+	agentListCacheMu.RLock()
+	entry, ok := agentListCache[key]
+	agentListCacheMu.RUnlock()
+	if !ok {
+		return dto.AgentListResponse{}, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		agentListCacheMu.Lock()
+		delete(agentListCache, key)
+		agentListCacheMu.Unlock()
+		return dto.AgentListResponse{}, false
+	}
+	return entry.response, true
+}
+
+func writeCachedAgentList(key string, response dto.AgentListResponse) {
+	if strings.TrimSpace(key) == "" {
+		return
+	}
+
+	agentListCacheMu.Lock()
+	agentListCache[key] = cachedAgentList{
+		response:  response,
+		expiresAt: time.Now().Add(agentListCacheTTL),
+	}
+	agentListCacheMu.Unlock()
 }
 
 func CreateAgent(c *gin.Context) {
@@ -126,6 +198,7 @@ func CreateAgent(c *gin.Context) {
 		writeAppError(c, http.StatusInternalServerError, regionErr)
 		return
 	}
+	req = normalizeCreateRequestSettings(req, templateDef, cfg, region)
 	if err := validateCreateRequest(req, templateDef, region); err != nil {
 		writeValidationError(c, err)
 		return
@@ -1046,6 +1119,69 @@ func validationFieldError(field, reason, value string) *appErr.AppError {
 		"reason": reason,
 		"value":  value,
 	})
+}
+
+func normalizeCreateRequestSettings(
+	req dto.CreateAgentRequest,
+	templateDef agenttemplate.Definition,
+	cfg config.Config,
+	region string,
+) dto.CreateAgentRequest {
+	settings := map[string]any{}
+	for key, value := range req.Settings {
+		settings[strings.TrimSpace(key)] = value
+	}
+
+	readSetting := func(key string) string {
+		raw, ok := settings[key]
+		if !ok {
+			return ""
+		}
+		text, _ := raw.(string)
+		return strings.TrimSpace(text)
+	}
+	setSetting := func(key, value string) {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return
+		}
+		settings[key] = trimmed
+	}
+
+	model := readSetting("model")
+	if model == "" {
+		model = strings.TrimSpace(stringValue(req.Model))
+	}
+	setSetting("model", model)
+
+	provider := readSetting("provider")
+	if provider == "" {
+		provider = strings.TrimSpace(stringValue(req.ModelProvider))
+	}
+	if provider == "" && model != "" {
+		for _, preset := range templateDef.RegionModelPresets[region] {
+			if strings.TrimSpace(preset.Value) != model {
+				continue
+			}
+			provider = strings.TrimSpace(preset.Provider)
+			if provider != "" {
+				break
+			}
+		}
+	}
+	setSetting("provider", provider)
+
+	baseURL := readSetting("baseURL")
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(stringValue(req.ModelBaseURL))
+	}
+	if baseURL == "" && strings.TrimSpace(cfg.AIProxyModelBaseURL) != "" {
+		baseURL = strings.TrimSpace(cfg.AIProxyModelBaseURL)
+	}
+	setSetting("baseURL", baseURL)
+
+	req.Settings = settings
+	return req
 }
 
 func applyUpdateToDevbox(devbox *unstructured.Unstructured, req dto.UpdateAgentRequest) {

@@ -22,7 +22,7 @@ type Config struct {
 }
 
 func Load() Config {
-	loadDotEnv(os.Getenv("LOAD_DOTENV"))
+	loadDotEnv()
 
 	aiProxyManagerBaseURL := normalizeAIProxyManagerBaseURL(strings.TrimSpace(os.Getenv("AIPROXY_MANAGER_BASE_URL")))
 	if aiProxyManagerBaseURL == "" {
@@ -87,8 +87,8 @@ func normalizeRegion(value string) string {
 	}
 }
 
-func loadDotEnv(flag string) {
-	if strings.TrimSpace(flag) != "1" {
+func loadDotEnv() {
+	if !shouldLoadDotEnv(os.Getenv("LOAD_DOTENV")) {
 		return
 	}
 
@@ -105,4 +105,33 @@ func loadDotEnv(flag string) {
 		}
 		_ = os.Setenv(strings.TrimSpace(key), value)
 	}
+}
+
+func shouldLoadDotEnv(flag string) bool {
+	switch strings.ToLower(strings.TrimSpace(flag)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return !isProductionLike()
+	}
+}
+
+func isProductionLike() bool {
+	if strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_HOST")) != "" {
+		return true
+	}
+
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("GO_ENV")), "production") {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("GIN_MODE")), "release") {
+		return true
+	}
+
+	return false
 }

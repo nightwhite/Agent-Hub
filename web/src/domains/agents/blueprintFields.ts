@@ -65,10 +65,17 @@ export const getRequiredTemplateSettingError = (
   fields: AgentSettingField[] = [],
 ): string => {
   for (const field of fields) {
-    if (field.readOnly || !field.required) {
+    if (!field.required) {
       continue;
     }
-    if (!readBlueprintSettingValue(blueprint, field).trim()) {
+    const value = readBlueprintSettingValue(blueprint, field).trim();
+    if (value) {
+      continue;
+    }
+    if (field.readOnly) {
+      return `${field.label} 未准备完成，请稍后重试`;
+    }
+    if (!value) {
       return `请填写${field.label}`;
     }
   }

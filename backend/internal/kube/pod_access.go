@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/httpstream"
@@ -21,11 +22,16 @@ type PodRef struct {
 }
 
 func ResolveAgentPod(ctx context.Context, clientset kubernetes.Interface, namespace, agentName string) (PodRef, error) {
-	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: ManagedSelector(agentName),
-	})
+	pods, err := listAgentPods(ctx, clientset, namespace, agentName, true)
 	if err != nil {
 		return PodRef{}, err
+	}
+	if len(pods.Items) == 0 {
+		// Backward compatibility: legacy pods may not carry managed-by label.
+		pods, err = listAgentPods(ctx, clientset, namespace, agentName, false)
+		if err != nil {
+			return PodRef{}, err
+		}
 	}
 	if len(pods.Items) == 0 {
 		return PodRef{}, fmt.Errorf("agent pod not found")
@@ -61,6 +67,41 @@ func ResolveAgentPod(ctx context.Context, clientset kubernetes.Interface, namesp
 	}
 
 	return PodRef{}, fmt.Errorf("agent pod container is not ready")
+}
+
+func listAgentPods(
+	ctx context.Context,
+	clientset kubernetes.Interface,
+	namespace string,
+	agentName string,
+	requireManagedBy bool,
+) (*corev1.PodList, error) {
+	selector := ManagedSelector(agentName)
+	if !requireManagedBy {
+		selector = fmt.Sprintf("agent.sealos.io/name=%s", agentName)
+	}
+
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if requireManagedBy {
+		return pods, nil
+	}
+
+	filtered := make([]corev1.Pod, 0, len(pods.Items))
+	for _, pod := range pods.Items {
+		labels := pod.GetLabels()
+		if strings.TrimSpace(labels["agent.sealos.io/name"]) != strings.TrimSpace(agentName) {
+			continue
+		}
+		filtered = append(filtered, pod)
+	}
+	pods.Items = filtered
+	return pods, nil
 }
 
 func execReadyContainerName(pod *corev1.Pod) (string, bool) {

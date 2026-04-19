@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -49,6 +52,10 @@ func writeHeaderKubeconfigError(c *gin.Context, err *appErr.AppError) {
 }
 
 func writeKubernetesError(c *gin.Context, err error, message string) {
+	if isCanceledRequestError(err) {
+		writeAppError(c, 499, appErr.New(appErr.CodeKubernetesOperation, "request canceled"))
+		return
+	}
 	if err != nil {
 		log.Printf("%s: %v", message, err)
 	}
@@ -65,4 +72,15 @@ func writeKubernetesError(c *gin.Context, err error, message string) {
 
 func writeValidationError(c *gin.Context, err *appErr.AppError) {
 	writeAppError(c, http.StatusUnprocessableEntity, err)
+}
+
+func isCanceledRequestError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "context canceled")
 }

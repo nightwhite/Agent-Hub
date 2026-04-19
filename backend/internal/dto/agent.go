@@ -8,6 +8,10 @@ type CreateAgentRequest struct {
 	AgentStorage   string         `json:"agent-storage" binding:"required"`
 	AgentAliasName string         `json:"agent-alias-name,omitempty"`
 	Settings       map[string]any `json:"settings,omitempty"`
+	ModelProvider  *string        `json:"agent-model-provider,omitempty"`
+	ModelBaseURL   *string        `json:"agent-model-baseurl,omitempty"`
+	ModelAPIKey    *string        `json:"agent-model-apikey,omitempty"`
+	Model          *string        `json:"agent-model,omitempty"`
 }
 
 type UpdateAgentRequest struct {

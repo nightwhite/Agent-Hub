@@ -74,6 +74,9 @@ func TestBuildReturnsKubernetesObjects(t *testing.T) {
 	if got := configLabels["agent.sealos.io/name"]; got != ag.Name {
 		t.Fatalf("Build() config label agent.sealos.io/name = %q, want %q", got, ag.Name)
 	}
+	if got := configLabels["agent.sealos.io/managed-by"]; got != ManagedByValue() {
+		t.Fatalf("Build() config label agent.sealos.io/managed-by = %q, want %q", got, ManagedByValue())
+	}
 	configUser, found, err := unstructured.NestedString(objects.Devbox.Object, "spec", "config", "user")
 	if err != nil || !found {
 		t.Fatalf("Build() config user missing: found=%v err=%v", found, err)

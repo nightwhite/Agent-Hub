@@ -4,6 +4,7 @@ import {
   createClusterContext,
   deleteAgent,
   ensureAIProxyToken,
+  getAgent,
   getClusterInfo,
   getCreateBlueprint,
   getSystemConfig,
@@ -419,7 +420,21 @@ export function useAgentHubController() {
           if (field.readOnly && field.binding.kind === "derived") {
             return result;
           }
-          result[field.key] = readBlueprintSettingValue(source, field).trim();
+          let value = readBlueprintSettingValue(source, field).trim();
+          if (
+            String(field.binding?.kind || "").trim() === "agent" &&
+            String(field.binding?.key || "").trim() === "modelProvider" &&
+            !value
+          ) {
+            const selectedModel = source.model.trim();
+            if (selectedModel) {
+              const matchedOption = template.modelOptions.find(
+                (option) => option.value === selectedModel,
+              );
+              value = String(matchedOption?.provider || "").trim();
+            }
+          }
+          result[field.key] = value;
           return result;
         },
         {},
@@ -666,6 +681,49 @@ export function useAgentHubController() {
     [items],
   );
 
+  const fetchAgentByName = useCallback(
+    async (agentName: string) => {
+      const name = String(agentName || "").trim();
+      if (!name) return null;
+
+      const currentContext = clusterContext || (await resolveClusterContext());
+      const currentClusterInfo =
+        clusterInfo || (await getClusterInfo(currentContext));
+      const currentTemplates =
+        templates.length > 0
+          ? templates
+          : hydrateTemplateCatalog((await listAgentTemplates()).items);
+
+      const payload = await getAgent(name, currentContext).catch(() => null);
+      if (!payload?.agent) {
+        return null;
+      }
+
+      const mapped = mapBackendAgentsToListItems(
+        [payload.agent as AgentContract],
+        currentTemplates,
+        currentClusterInfo,
+      )[0];
+
+      if (!mapped) {
+        return null;
+      }
+
+      setClusterContext(currentContext);
+      setClusterInfo(currentClusterInfo);
+      setTemplates(currentTemplates);
+      primeItem(mapped);
+      return mapped;
+    },
+    [
+      clusterContext,
+      clusterInfo,
+      primeItem,
+      resolveClusterContext,
+      templates,
+    ],
+  );
+
   const findLoadedTemplateById = useCallback(
     (templateId: string) => findTemplateById(templates, templateId),
     [templates],
@@ -696,6 +754,7 @@ export function useAgentHubController() {
     toggleItemState,
     ensureWorkspaceTokenReady,
     findItemByName,
+    fetchAgentByName,
     findTemplateById: findLoadedTemplateById,
     primeItem,
     createBlueprintFromAgentItem,

@@ -8,6 +8,10 @@ import (
 
 func TestLoadPrefersRegionEnv(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	t.Setenv("REGION", "cn")
 
 	cfg := Load()
@@ -18,6 +22,10 @@ func TestLoadPrefersRegionEnv(t *testing.T) {
 
 func TestLoadInvalidRegionClearsValue(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	t.Setenv("REGION", "hzh")
 
 	cfg := Load()
@@ -28,6 +36,10 @@ func TestLoadInvalidRegionClearsValue(t *testing.T) {
 
 func TestLoadMissingRegionKeepsEmpty(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	t.Setenv("REGION", "")
 
 	cfg := Load()
@@ -38,6 +50,10 @@ func TestLoadMissingRegionKeepsEmpty(t *testing.T) {
 
 func TestLoadReadsRegionFromDotEnvInCurrentDir(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "1")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	t.Setenv("REGION", "")
 
 	cwd, err := os.Getwd()
@@ -67,6 +83,10 @@ func TestLoadReadsRegionFromDotEnvInCurrentDir(t *testing.T) {
 
 func TestLoadPrefersProcessEnvOverDotEnv(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "1")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	t.Setenv("REGION", "cn")
 
 	cwd, err := os.Getwd()
@@ -93,6 +113,10 @@ func TestLoadPrefersProcessEnvOverDotEnv(t *testing.T) {
 
 func TestLoadNormalizesUSW1AIProxyManagerBaseURLToSealosIO(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	t.Setenv("AIPROXY_MANAGER_BASE_URL", "https://aiproxy-web.usw-1.sealos.app")
 	t.Setenv("AIPROXY_BASE_URL", "")
 
@@ -104,6 +128,10 @@ func TestLoadNormalizesUSW1AIProxyManagerBaseURLToSealosIO(t *testing.T) {
 
 func TestLoadNormalizesLegacyAIProxyBaseURLToSealosIO(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	t.Setenv("AIPROXY_MANAGER_BASE_URL", "")
 	t.Setenv("AIPROXY_BASE_URL", "https://aiproxy-web.usw-1.sealos.app")
 
@@ -115,6 +143,10 @@ func TestLoadNormalizesLegacyAIProxyBaseURLToSealosIO(t *testing.T) {
 
 func TestLoadParsesK8sProxyAllowedHostsFromEnv(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	t.Setenv("K8S_PROXY_ALLOWED_HOSTS", ".sealos.io, usw-1.sealos.run,")
 
 	cfg := Load()
@@ -129,8 +161,12 @@ func TestLoadParsesK8sProxyAllowedHostsFromEnv(t *testing.T) {
 	}
 }
 
-func TestLoadDoesNotReadDotEnvUnlessEnabled(t *testing.T) {
+func TestLoadDoesNotReadDotEnvInProductionByDefault(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	t.Setenv("REGION", "")
 
 	cwd, err := os.Getwd()
@@ -151,6 +187,36 @@ func TestLoadDoesNotReadDotEnvUnlessEnabled(t *testing.T) {
 
 	cfg := Load()
 	if cfg.Region != "" {
-		t.Fatalf("Load().Region = %q, want empty when LOAD_DOTENV is not enabled", cfg.Region)
+		t.Fatalf("Load().Region = %q, want empty in production when LOAD_DOTENV is not enabled", cfg.Region)
+	}
+}
+
+func TestLoadReadsDotEnvByDefaultInDevelopment(t *testing.T) {
+	t.Setenv("LOAD_DOTENV", "")
+	t.Setenv("GO_ENV", "")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	t.Setenv("REGION", "")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+
+	tempDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("REGION=us\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.env) error = %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Chdir(tempDir) error = %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+	}()
+
+	cfg := Load()
+	if cfg.Region != "us" {
+		t.Fatalf("Load().Region = %q, want us in development default", cfg.Region)
 	}
 }

@@ -113,6 +113,15 @@ export function AgentConfigForm({
     }
   };
 
+  const resolveProviderValue = () => {
+    const current = blueprint.modelProvider.trim();
+    if (current) return current;
+    const selectedModel = blueprint.model.trim();
+    if (!selectedModel) return "";
+    const option = template.modelOptions.find((item) => item.value === selectedModel);
+    return String(option?.provider || "").trim();
+  };
+
   const renderRuntimeItem = () => (
     <FormItem className={formWidthClassName} label="运行时环境">
       <div className="workbench-card flex flex-wrap items-center gap-3 p-4">
@@ -276,7 +285,7 @@ export function AgentConfigForm({
           hint="该字段会随模型自动切换。"
           label="模型渠道"
           readOnly
-          value={formatModelProviderLabel(fieldValue)}
+          value={formatModelProviderLabel(resolveProviderValue())}
         />
       );
     }

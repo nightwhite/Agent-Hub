@@ -133,49 +133,6 @@ func getLatestAgentPod(ctx context.Context, clientset kubernetes.Interface, name
 	return &items[0], nil
 }
 
-func listLatestAgentPods(ctx context.Context, clientset kubernetes.Interface, namespace string) (map[string]*corev1.Pod, error) {
-	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "agent.sealos.io/name",
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	latest := make(map[string]*corev1.Pod, len(pods.Items))
-	for i := range pods.Items {
-		pod := pods.Items[i]
-		agentName := strings.TrimSpace(pod.GetLabels()["agent.sealos.io/name"])
-		if agentName == "" {
-			continue
-		}
-
-		current := latest[agentName]
-		if shouldReplaceLatestPod(current, &pod) {
-			latest[agentName] = pod.DeepCopy()
-		}
-	}
-
-	return latest, nil
-}
-
-func shouldReplaceLatestPod(current, candidate *corev1.Pod) bool {
-	if candidate == nil {
-		return false
-	}
-	if current == nil {
-		return true
-	}
-
-	currentDeleting := current.DeletionTimestamp != nil
-	candidateDeleting := candidate.DeletionTimestamp != nil
-
-	if currentDeleting != candidateDeleting {
-		return !candidateDeleting
-	}
-
-	return candidate.CreationTimestamp.Time.After(current.CreationTimestamp.Time)
-}
-
 func statusFromPod(pod *corev1.Pod, bootstrapPhase string) agent.Status {
 	if pod == nil {
 		return agent.StatusCreating

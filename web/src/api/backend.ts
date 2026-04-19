@@ -13,7 +13,9 @@ interface BackendEnvelope<T> {
   data?: T;
   message?: string;
   error?: {
+    type?: string;
     message?: string;
+    details?: Record<string, unknown>;
   };
   requestId?: string;
 }
@@ -66,6 +68,17 @@ const buildBackendWsUrl = (path = "") => {
 
 const createBackendError = (response: Response, payload: unknown) => {
   const normalizedPayload = payload as BackendEnvelope<unknown> | string | null;
+  const detailMessage = (() => {
+    if (!normalizedPayload || typeof normalizedPayload !== "object") return "";
+    const details = normalizedPayload.error?.details;
+    if (!details || typeof details !== "object") return "";
+    const field = String(details.field || "").trim();
+    const reason = String(details.reason || "").trim();
+    const value = String(details.value || "").trim();
+    const parts = [field, reason, value].filter(Boolean);
+    if (!parts.length) return "";
+    return `(${parts.join(" | ")})`;
+  })();
   const message =
     (typeof normalizedPayload === "object" && normalizedPayload
       ? normalizedPayload.message || normalizedPayload.error?.message
@@ -74,6 +87,9 @@ const createBackendError = (response: Response, payload: unknown) => {
     `请求失败: ${response.status}`;
 
   const error: BackendRequestError = new Error(message);
+  if (detailMessage) {
+    error.message = `${message} ${detailMessage}`.trim();
+  }
   error.status = response.status;
   error.payload = payload;
   error.requestId =
