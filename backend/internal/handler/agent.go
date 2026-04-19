@@ -166,7 +166,10 @@ func readCachedAgentList(key string) (dto.AgentListResponse, bool) {
 	}
 	if time.Now().After(entry.expiresAt) {
 		agentListCacheMu.Lock()
-		delete(agentListCache, key)
+		currentEntry, stillExists := agentListCache[key]
+		if stillExists && time.Now().After(currentEntry.expiresAt) {
+			delete(agentListCache, key)
+		}
 		agentListCacheMu.Unlock()
 		return dto.AgentListResponse{}, false
 	}

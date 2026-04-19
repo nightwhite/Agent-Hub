@@ -109,7 +109,9 @@ export function AgentDetailPage() {
     const recoverItem = async () => {
       try {
         for (let attempt = 0; attempt < 6; attempt += 1) {
-          const fetched = await controller.fetchAgentByName(agentName);
+          const fetched = await controller.fetchAgentByName(agentName).catch(
+            () => null,
+          );
           if (fetched) {
             return;
           }
