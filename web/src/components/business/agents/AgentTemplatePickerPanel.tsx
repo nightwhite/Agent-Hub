@@ -1,7 +1,6 @@
 import { LayoutTemplate } from 'lucide-react'
 import { cn } from '../../../lib/format'
 import type { AgentTemplateDefinition, AgentTemplateId } from '../../../domains/agents/types'
-import { Button } from '../../ui/Button'
 
 interface AgentTemplatePickerPanelProps {
   onSelect: (templateId: AgentTemplateId) => void
@@ -25,23 +24,16 @@ function TemplateCard({
   onSelect: () => void
 }) {
   return (
-    <div
+    <button
       className={cn(
         'group relative flex h-full w-full flex-col items-start overflow-hidden rounded-xl border-[0.5px] bg-white text-left transition-[border-color,box-shadow] duration-200',
         !template.backendSupported
           ? 'cursor-not-allowed select-none border-zinc-200 bg-zinc-50/80 opacity-90'
           : 'cursor-pointer border-zinc-200 shadow-[0px_2px_8px_-2px_rgba(0,0,0,0.08)] hover:border-zinc-900',
       )}
-      onClick={template.backendSupported ? onSelect : undefined}
-      onKeyDown={(event) => {
-        if (!template.backendSupported) return
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onSelect()
-        }
-      }}
-      role="button"
-      tabIndex={template.backendSupported ? 0 : -1}
+      disabled={!template.backendSupported}
+      onClick={onSelect}
+      type="button"
     >
       <div className="flex w-full flex-col items-start gap-3 px-4 pt-4 pb-3">
         <div className="flex items-start justify-between gap-3 self-stretch">
@@ -63,20 +55,15 @@ function TemplateCard({
             </div>
           </div>
 
-          <Button
-            className="pointer-events-none h-8 rounded-lg opacity-0 shadow-none transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
-            disabled={!template.backendSupported}
-            onClick={(event) => {
-              event.stopPropagation()
-              onSelect()
-            }}
-            size="xs"
-            type="button"
-            variant="secondary"
+          <span
+            className={cn(
+              'inline-flex h-8 items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 text-[12px]/5 font-medium text-zinc-700 opacity-0 transition-all duration-200',
+              'group-hover:opacity-100 group-focus-visible:opacity-100',
+            )}
           >
             <LayoutTemplate size={14} />
             选择
-          </Button>
+          </span>
         </div>
 
         <p className="line-clamp-2 min-h-[2.9rem] w-full text-[12px]/5 text-zinc-500">
@@ -107,7 +94,7 @@ function TemplateCard({
         <span className="truncate">{template.shortName}</span>
         <span className="shrink-0">{template.backendSupported ? '可直接创建' : '仅展示'}</span>
       </div>
-    </div>
+    </button>
   )
 }
 

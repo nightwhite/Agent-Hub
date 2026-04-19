@@ -17,7 +17,7 @@ describe('AgentActionsCell', () => {
         { key: 'open-chat', label: '对话', enabled: true },
         { key: 'open-terminal', label: '终端', enabled: true },
         { key: 'open-files', label: '文件', enabled: true },
-        { key: 'open-settings', label: '设置', enabled: true },
+        { key: 'open-settings', label: '配置', enabled: true },
         { key: 'delete', label: '删除', enabled: true },
       ],
     })
@@ -60,7 +60,7 @@ describe('AgentActionsCell', () => {
       actions: [
         { key: 'open-terminal', label: '终端', enabled: true },
         { key: 'open-files', label: '文件', enabled: true },
-        { key: 'open-settings', label: '设置', enabled: true },
+        { key: 'open-settings', label: '配置', enabled: true },
         { key: 'delete', label: '删除', enabled: true },
       ],
     })

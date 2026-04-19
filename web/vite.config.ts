@@ -6,6 +6,14 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { parse as parseYaml } from 'yaml'
 
+if (!process.env.VITE_AGENTHUB_BROWSER_TITLE) {
+  process.env.VITE_AGENTHUB_BROWSER_TITLE = 'Agent Hub Web'
+}
+
+if (!process.env.VITE_AGENTHUB_FAVICON_URL) {
+  process.env.VITE_AGENTHUB_FAVICON_URL = '/brand/agent-hub.svg'
+}
+
 const DEFAULT_K8S_SERVER = process.env.VITE_DEFAULT_K8S_SERVER || ''
 const FALLBACK_PROXY_TARGET = DEFAULT_K8S_SERVER || 'https://127.0.0.1:6443'
 const BACKEND_PROXY_TARGET = process.env.VITE_AGENTHUB_BACKEND_TARGET || 'http://127.0.0.1:8999'
