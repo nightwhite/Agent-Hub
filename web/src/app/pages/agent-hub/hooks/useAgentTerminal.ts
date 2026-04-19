@@ -385,7 +385,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
         connectSocketRef.current(version, reconnectPlanRef.current, 'reconnect')
       }, delay)
     })
-  }, [clearReconnectTimer, closeSocket, emitOutput, onErrorMessage, sendTerminalResize, syncSession])
+  }, [clearReconnectTimer, closeSocket, emitOutput, nextRequestId, onErrorMessage, sendTerminalResize, syncSession])
 
   useEffect(() => {
     connectSocketRef.current = connectSocket

@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"crypto/sha256"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -53,14 +53,16 @@ func ListAgents(c *gin.Context) {
 	}
 
 	var (
-		devboxes             *unstructured.UnstructuredList
+		devboxes              *unstructured.UnstructuredList
 		ingressDomainsByAgent map[string]string
-		devboxErr            error
-		ingressErr           error
+		latestPodsByAgent     map[string]*corev1.Pod
+		devboxErr             error
+		ingressErr            error
+		podErr                error
 	)
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		devboxes, devboxErr = repo.List(ctx, kube.ManagedListSelector())
@@ -68,6 +70,10 @@ func ListAgents(c *gin.Context) {
 	go func() {
 		defer wg.Done()
 		ingressDomainsByAgent, ingressErr = listManagedIngressDomains(ctx, clientset, factory.Namespace())
+	}()
+	go func() {
+		defer wg.Done()
+		latestPodsByAgent, podErr = listManagedLatestAgentPods(ctx, clientset, factory.Namespace())
 	}()
 	wg.Wait()
 
@@ -78,6 +84,9 @@ func ListAgents(c *gin.Context) {
 	if ingressErr != nil {
 		writeKubernetesError(c, ingressErr, "failed to list agent ingresses")
 		return
+	}
+	if podErr != nil {
+		log.Printf("failed to list managed pods for status enrichment: %v", podErr)
 	}
 
 	cfg := runtimeConfig(c)
@@ -92,7 +101,7 @@ func ListAgents(c *gin.Context) {
 			writeAppError(c, http.StatusInternalServerError, appErr.New(appErr.CodeKubernetesOperation, convErr.Error()))
 			return
 		}
-		view.Agent.Status = resolveAgentRuntimeStatusFromPod(&item, nil)
+		view.Agent.Status = resolveAgentRuntimeStatusFromPod(&item, latestPodsByAgent[view.Agent.Name])
 		view.Agent.IngressDomain = ingressDomainsByAgent[view.Agent.Name]
 		views = append(views, view)
 	}
@@ -124,7 +133,10 @@ func ListAgents(c *gin.Context) {
 	writeSuccess(c, http.StatusOK, response)
 }
 
-const agentListCacheTTL = 2 * time.Second
+const (
+	agentListCacheTTL        = 2 * time.Second
+	agentListCacheMaxEntries = 256
+)
 
 type cachedAgentList struct {
 	response  dto.AgentListResponse
@@ -167,9 +179,28 @@ func writeCachedAgentList(key string, response dto.AgentListResponse) {
 	}
 
 	agentListCacheMu.Lock()
+	now := time.Now()
+	for cacheKey, entry := range agentListCache {
+		if now.After(entry.expiresAt) {
+			delete(agentListCache, cacheKey)
+		}
+	}
+	if _, exists := agentListCache[key]; !exists && len(agentListCache) >= agentListCacheMaxEntries {
+		oldestKey := ""
+		var oldestExpiry time.Time
+		for cacheKey, entry := range agentListCache {
+			if oldestKey == "" || entry.expiresAt.Before(oldestExpiry) {
+				oldestKey = cacheKey
+				oldestExpiry = entry.expiresAt
+			}
+		}
+		if oldestKey != "" {
+			delete(agentListCache, oldestKey)
+		}
+	}
 	agentListCache[key] = cachedAgentList{
 		response:  response,
-		expiresAt: time.Now().Add(agentListCacheTTL),
+		expiresAt: now.Add(agentListCacheTTL),
 	}
 	agentListCacheMu.Unlock()
 }
@@ -1000,6 +1031,45 @@ func listManagedIngressDomains(ctx context.Context, clientset kubernetes.Interfa
 	}
 
 	return domains, nil
+}
+
+func listManagedLatestAgentPods(ctx context.Context, clientset kubernetes.Interface, namespace string) (map[string]*corev1.Pod, error) {
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: kube.ManagedListSelector(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	latest := make(map[string]*corev1.Pod, len(pods.Items))
+	for i := range pods.Items {
+		pod := pods.Items[i]
+		agentName := strings.TrimSpace(pod.GetLabels()["agent.sealos.io/name"])
+		if agentName == "" {
+			continue
+		}
+
+		existing := latest[agentName]
+		if existing == nil {
+			podCopy := pod.DeepCopy()
+			latest[agentName] = podCopy
+			continue
+		}
+		if existing.DeletionTimestamp != nil && pod.DeletionTimestamp == nil {
+			podCopy := pod.DeepCopy()
+			latest[agentName] = podCopy
+			continue
+		}
+		if existing.DeletionTimestamp == nil && pod.DeletionTimestamp != nil {
+			continue
+		}
+		if pod.CreationTimestamp.Time.After(existing.CreationTimestamp.Time) {
+			podCopy := pod.DeepCopy()
+			latest[agentName] = podCopy
+		}
+	}
+
+	return latest, nil
 }
 
 func validateCreateRequest(

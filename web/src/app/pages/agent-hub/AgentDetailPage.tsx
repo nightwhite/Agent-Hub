@@ -111,15 +111,6 @@ export function AgentDetailPage() {
         for (let attempt = 0; attempt < 6; attempt += 1) {
           const fetched = await controller.fetchAgentByName(agentName);
           if (fetched) {
-            primeItem(fetched);
-            return;
-          }
-
-          const nextItems = await controller.loadItemsSilently();
-          const matched =
-            nextItems?.find((entry) => entry.name === agentName) || null;
-          if (matched) {
-            primeItem(matched);
             return;
           }
           await sleep(800);
@@ -146,8 +137,6 @@ export function AgentDetailPage() {
     item,
     controller.loading,
     controller.fetchAgentByName,
-    controller.loadItemsSilently,
-    primeItem,
   ]);
 
   const currentTab = useMemo<AgentDetailTab>(() => {

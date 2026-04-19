@@ -52,8 +52,12 @@ func writeHeaderKubeconfigError(c *gin.Context, err *appErr.AppError) {
 }
 
 func writeKubernetesError(c *gin.Context, err error, message string) {
-	if isCanceledRequestError(err) {
+	if isClientCanceledError(err) {
 		writeAppError(c, 499, appErr.New(appErr.CodeKubernetesOperation, "request canceled"))
+		return
+	}
+	if isDeadlineExceededError(err) {
+		writeAppError(c, http.StatusGatewayTimeout, appErr.New(appErr.CodeKubernetesOperation, "request timeout"))
 		return
 	}
 	if err != nil {
@@ -75,12 +79,27 @@ func writeValidationError(c *gin.Context, err *appErr.AppError) {
 }
 
 func isCanceledRequestError(err error) bool {
+	return isClientCanceledError(err) || isDeadlineExceededError(err)
+}
+
+func isClientCanceledError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
 		return true
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	return strings.Contains(message, "context canceled")
+}
+
+func isDeadlineExceededError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "deadline exceeded")
 }
