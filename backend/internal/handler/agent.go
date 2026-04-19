@@ -1202,7 +1202,11 @@ func normalizeCreateRequestSettings(
 ) dto.CreateAgentRequest {
 	settings := map[string]any{}
 	for key, value := range req.Settings {
-		settings[strings.TrimSpace(key)] = value
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		settings[trimmedKey] = value
 	}
 
 	readSetting := func(key string) string {

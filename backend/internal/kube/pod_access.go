@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/httpstream"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -93,9 +93,15 @@ func listAgentPods(
 	}
 
 	filtered := make([]corev1.Pod, 0, len(pods.Items))
+	expectedAgentName := strings.TrimSpace(agentName)
+	expectedManagedBy := strings.TrimSpace(ManagedByValue())
 	for _, pod := range pods.Items {
 		labels := pod.GetLabels()
-		if strings.TrimSpace(labels["agent.sealos.io/name"]) != strings.TrimSpace(agentName) {
+		if strings.TrimSpace(labels["agent.sealos.io/name"]) != expectedAgentName {
+			continue
+		}
+		managedBy := strings.TrimSpace(labels["agent.sealos.io/managed-by"])
+		if managedBy != "" && managedBy != expectedManagedBy {
 			continue
 		}
 		filtered = append(filtered, pod)
