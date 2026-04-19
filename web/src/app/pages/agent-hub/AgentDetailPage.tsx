@@ -98,12 +98,23 @@ export function AgentDetailPage() {
     }
 
     let cancelled = false;
+    let pendingSleepTimer: number | null = null;
+    let wakePendingSleep: (() => void) | null = null;
     resolvingMissingRef.current = true;
     setResolvingMissing(true);
 
     const sleep = (ms: number) =>
       new Promise<void>((resolve) => {
-        window.setTimeout(resolve, ms);
+        const finish = () => {
+          if (pendingSleepTimer != null) {
+            window.clearTimeout(pendingSleepTimer);
+            pendingSleepTimer = null;
+          }
+          wakePendingSleep = null;
+          resolve();
+        };
+        wakePendingSleep = finish;
+        pendingSleepTimer = window.setTimeout(finish, ms);
       });
 
     const recoverItem = async () => {
@@ -133,6 +144,12 @@ export function AgentDetailPage() {
     return () => {
       cancelled = true;
       resolvingMissingRef.current = false;
+      if (wakePendingSleep) {
+        wakePendingSleep();
+      } else if (pendingSleepTimer != null) {
+        window.clearTimeout(pendingSleepTimer);
+        pendingSleepTimer = null;
+      }
     };
   }, [
     agentName,

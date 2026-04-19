@@ -74,8 +74,7 @@ const createBackendError = (response: Response, payload: unknown) => {
     if (!details || typeof details !== "object") return "";
     const field = String(details.field || "").trim();
     const reason = String(details.reason || "").trim();
-    const value = String(details.value || "").trim();
-    const parts = [field, reason, value].filter(Boolean);
+    const parts = [field, reason].filter(Boolean);
     if (!parts.length) return "";
     return `(${parts.join(" | ")})`;
   })();
