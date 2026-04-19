@@ -20,7 +20,8 @@ func TestResolveAgentRuntimeStatusUsesPodReadiness(t *testing.T) {
 			Name:      "hermes",
 			Namespace: "ns-test",
 			Labels: map[string]string{
-				"agent.sealos.io/name": "hermes",
+				"agent.sealos.io/name":       "hermes",
+				"agent.sealos.io/managed-by": "agent-hub-backend",
 			},
 		},
 		Status: corev1.PodStatus{
@@ -47,7 +48,8 @@ func TestResolveAgentRuntimeStatusTreatsContainerCreatingAsCreating(t *testing.T
 			Name:      "hermes",
 			Namespace: "ns-test",
 			Labels: map[string]string{
-				"agent.sealos.io/name": "hermes",
+				"agent.sealos.io/name":       "hermes",
+				"agent.sealos.io/managed-by": "agent-hub-backend",
 			},
 		},
 		Status: corev1.PodStatus{

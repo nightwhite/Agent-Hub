@@ -1,7 +1,27 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
+type MaybeError = Error & {
+  status?: number
+  payload?: unknown
+}
 
-export const formatDisplayTime = (value) => {
+type MaybeConflictResult<T> = {
+  conflict: boolean
+  data: T | null
+}
+
+type ClusterContextLike = {
+  kubeconfig?: string
+}
+
+type RequestOptions = RequestInit & {
+  headers?: HeadersInit
+}
+
+type AuthTokenEntry = {
+  source?: string
+  token?: unknown
+}
+
+export const formatDisplayTime = (value: string | number | Date | null | undefined) => {
   if (!value) return '--'
 
   const date = new Date(value)
@@ -18,7 +38,7 @@ export const formatDisplayTime = (value) => {
   }).format(date)
 }
 
-export const toKubeconfigScalar = (value) => {
+export const toKubeconfigScalar = (value: unknown): string => {
   if (typeof value !== 'string') return ''
   return value.trim().replace(/^['"]|['"]$/g, '')
 }
@@ -33,29 +53,34 @@ export const encodeHeaderValue = (value = '') => {
   }
 }
 
-export const dedupeAuthCandidates = (entries = []) => {
-  const seen = new Set()
-
-  return entries.filter((entry) => {
+export const dedupeAuthCandidates = (
+  entries: AuthTokenEntry[] = [],
+): Array<{ source: string; token: string }> => {
+  const seen = new Set<string>()
+  const normalized: Array<{ source: string; token: string }> = []
+  entries.forEach((entry) => {
     const token = toKubeconfigScalar(entry?.token)
-    if (!token || seen.has(token)) return false
+    if (!token || seen.has(token)) return
     seen.add(token)
-    entry.token = token
-    return true
+    normalized.push({
+      source: typeof entry?.source === 'string' && entry.source ? entry.source : 'unknown',
+      token,
+    })
   })
+  return normalized
 }
 
 export const getNow = () => {
   const date = new Date()
-  const pad = (value) => String(value).padStart(2, '0')
+  const pad = (value: number) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
-export const requestJson = async (url, options = {}) => {
+export const requestJson = async (url: string, options: RequestOptions = {}) => {
   const response = await fetch(url, options)
   if (!response.ok) {
     const text = await response.text().catch(() => '')
-    const error = new Error(text || `请求失败: ${response.status}`)
+    const error: MaybeError = new Error(text || `请求失败: ${response.status}`)
     error.status = response.status
     error.payload = text
     throw error
@@ -68,27 +93,36 @@ export const requestJson = async (url, options = {}) => {
   return response.json()
 }
 
-export const createApiError = async (response) => {
+export const createApiError = async (response: Response) => {
   const text = await response.text().catch(() => '')
-  let payload = text
+  let payload: unknown = text
   let message = text || `请求失败: ${response.status}`
 
   if (text) {
     try {
-      payload = JSON.parse(text)
-      message = payload?.message || message
+      const parsed = JSON.parse(text) as unknown
+      payload = parsed
+      if (typeof parsed === 'object' && parsed !== null && 'message' in parsed) {
+        const maybeMessage = (parsed as { message?: unknown }).message
+        if (typeof maybeMessage === 'string' && maybeMessage) {
+          message = maybeMessage
+        }
+      }
     } catch {
       payload = text
     }
   }
 
-  const error = new Error(message)
+  const error: MaybeError = new Error(message)
   error.status = response.status
   error.payload = payload
   return error
 }
 
-export const requestMaybeConflict = async (url, options = {}) => {
+export const requestMaybeConflict = async <T = unknown>(
+  url: string,
+  options: RequestOptions = {},
+): Promise<MaybeConflictResult<T>> => {
   const response = await fetch(url, options)
 
   if (response.status === 409) {
@@ -105,7 +139,7 @@ export const requestMaybeConflict = async (url, options = {}) => {
 
   return {
     conflict: false,
-    data: await response.json(),
+    data: (await response.json()) as T,
   }
 }
 
@@ -125,11 +159,12 @@ export function maskTokenForLog(token = '') {
   }
 }
 
-export const isUnauthorizedError = (error) => error?.status === 401
+export const isUnauthorizedError = (error: unknown) =>
+  typeof error === 'object' && error !== null && 'status' in error && (error as MaybeError).status === 401
 
-const buildHeaders = (clusterContext) => {
+const buildHeaders = (clusterContext?: ClusterContextLike | null): Record<string, string> => {
   const encodedKubeconfig = encodeHeaderValue(clusterContext?.kubeconfig || '')
-  const headers = {
+  const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
   }
@@ -141,7 +176,10 @@ const buildHeaders = (clusterContext) => {
   return headers
 }
 
-export const buildAuthorizedRequestOptions = (clusterContext, options = {}) => ({
+export const buildAuthorizedRequestOptions = (
+  clusterContext: ClusterContextLike | null | undefined,
+  options: RequestOptions = {},
+): RequestOptions => ({
   ...options,
   headers: {
     ...buildHeaders(clusterContext),
@@ -149,7 +187,11 @@ export const buildAuthorizedRequestOptions = (clusterContext, options = {}) => (
   },
 })
 
-export const requestRawWithAuthRetry = async (url, clusterContext, options = {}) => {
+export const requestRawWithAuthRetry = async (
+  url: string,
+  clusterContext: ClusterContextLike | null | undefined,
+  options: RequestOptions = {},
+) => {
   try {
     const response = await fetch(url, buildAuthorizedRequestOptions(clusterContext, options))
     if (!response.ok) {
@@ -157,42 +199,53 @@ export const requestRawWithAuthRetry = async (url, clusterContext, options = {})
     }
     return response
   } catch (error) {
+    const typedError = error as MaybeError
     if (isUnauthorizedError(error)) {
-      error.message = '请求失败: kubeconfig 认证无效或当前环境未按 Sealos 应用方式代理 Kubernetes 请求'
+      typedError.message = '请求失败: kubeconfig 认证无效或当前环境未按 Sealos 应用方式代理 Kubernetes 请求'
     }
-    throw error
+    throw typedError
   }
 }
 
-export const requestJsonWithAuthRetry = async (url, clusterContext, options = {}) => {
+export const requestJsonWithAuthRetry = async (
+  url: string,
+  clusterContext: ClusterContextLike | null | undefined,
+  options: RequestOptions = {},
+) => {
   try {
     return await requestJson(url, buildAuthorizedRequestOptions(clusterContext, options))
   } catch (error) {
+    const typedError = error as MaybeError
     if (isUnauthorizedError(error)) {
-      error.message = '请求失败: kubeconfig 认证无效或当前环境未按 Sealos 应用方式代理 Kubernetes 请求'
+      typedError.message = '请求失败: kubeconfig 认证无效或当前环境未按 Sealos 应用方式代理 Kubernetes 请求'
     }
-    throw error
+    throw typedError
   }
 }
 
-export const requestMaybeConflictWithAuthRetry = async (url, clusterContext, options = {}) => {
+export const requestMaybeConflictWithAuthRetry = async (
+  url: string,
+  clusterContext: ClusterContextLike | null | undefined,
+  options: RequestOptions = {},
+) => {
   try {
     return await requestMaybeConflict(url, buildAuthorizedRequestOptions(clusterContext, options))
   } catch (error) {
+    const typedError = error as MaybeError
     if (isUnauthorizedError(error)) {
-      error.message = '请求失败: kubeconfig 认证无效或当前环境未按 Sealos 应用方式代理 Kubernetes 请求'
+      typedError.message = '请求失败: kubeconfig 认证无效或当前环境未按 Sealos 应用方式代理 Kubernetes 请求'
     }
-    throw error
+    throw typedError
   }
 }
 
-export const buildProxyUrl = (path, searchParams) => {
+export const buildProxyUrl = (path: string, searchParams?: URLSearchParams) => {
   const query = searchParams?.toString()
   return `/k8s-api${path}${query ? `?${query}` : ''}`
 }
 
-export const fileToBase64 = (file) =>
-  new Promise((resolve, reject) => {
+export const fileToBase64 = (file: Blob) =>
+  new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
       const result = String(reader.result || '')

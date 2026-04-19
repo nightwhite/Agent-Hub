@@ -4,19 +4,19 @@ import {
   Globe,
   LayoutDashboard,
   Settings,
-} from "lucide-react";
+} from 'lucide-react'
 import type {
   AgentListItem,
   AgentWorkspaceItem,
-} from "../../../../domains/agents/types";
-import { cn } from "../../../../lib/format";
+} from '../../../../domains/agents/types'
+import { cn } from '../../../../lib/format'
 
-export type AgentDetailTab = AgentWorkspaceItem["key"];
+export type AgentDetailTab = AgentWorkspaceItem['key']
 
 interface AgentDetailSidebarProps {
-  item: AgentListItem;
-  currentTab: AgentDetailTab;
-  onTabChange: (tab: AgentDetailTab) => void;
+  item: AgentListItem
+  currentTab: AgentDetailTab
+  onTabChange: (tab: AgentDetailTab) => void
 }
 
 export function AgentDetailSidebar({
@@ -29,17 +29,17 @@ export function AgentDetailSidebar({
     chat: Bot,
     files: FolderOpen,
     settings: Settings,
-    "web-ui": Globe,
+    'web-ui': Globe,
   } as const;
 
   const tabs = item.workspaces
-    .filter((workspace) => workspace.key !== "terminal")
+    .filter((workspace) => workspace.key !== 'terminal')
     .map((workspace) => ({
       value: workspace.key,
       label: workspace.label,
       icon: iconMap[workspace.key as keyof typeof iconMap] || LayoutDashboard,
       enabled: workspace.enabled,
-      reason: workspace.reason || "",
+      reason: workspace.reason || '',
     }));
 
   return (
@@ -51,16 +51,16 @@ export function AgentDetailSidebar({
           return (
             <button
               className={cn(
-                "flex w-full cursor-pointer flex-col items-center gap-1 rounded-lg p-1.5 text-center text-[10px] font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 min-[1200px]:p-2 min-[1200px]:text-[11px]",
+                'flex w-full cursor-pointer flex-col items-center gap-1 rounded-lg p-1.5 text-center text-[10px] font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 min-[1200px]:p-2 min-[1200px]:text-[11px]',
                 currentTab === tab.value &&
-                  "bg-zinc-100 text-zinc-900 shadow-[inset_0_0_0_0.5px_rgba(228,228,231,0.9)]",
+                  'bg-zinc-100 text-zinc-900 shadow-[inset_0_0_0_0.5px_rgba(228,228,231,0.9)]',
                 !tab.enabled &&
-                  "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-zinc-500",
+                  'cursor-not-allowed opacity-45 hover:bg-transparent hover:text-zinc-500',
               )}
               key={tab.value}
               onClick={() => {
-                if (!tab.enabled) return;
-                onTabChange(tab.value);
+                if (!tab.enabled) return
+                onTabChange(tab.value)
               }}
               title={tab.enabled ? tab.label : tab.reason}
               type="button"
@@ -68,9 +68,9 @@ export function AgentDetailSidebar({
               <Icon size={18} strokeWidth={1.35} />
               <span>{tab.label}</span>
             </button>
-          );
+          )
         })}
       </div>
     </aside>
-  );
+  )
 }

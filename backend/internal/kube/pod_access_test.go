@@ -73,7 +73,8 @@ func newAgentPodForResolveTest(name, agentName string, createdAt metav1.Time, re
 			Namespace:         "ns-test",
 			CreationTimestamp: createdAt,
 			Labels: map[string]string{
-				"agent.sealos.io/name": agentName,
+				"agent.sealos.io/name":       agentName,
+				"agent.sealos.io/managed-by": ManagedByValue(),
 			},
 		},
 		Spec: corev1.PodSpec{

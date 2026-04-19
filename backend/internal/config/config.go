@@ -22,7 +22,7 @@ type Config struct {
 }
 
 func Load() Config {
-	loadDotEnv()
+	loadDotEnv(os.Getenv("LOAD_DOTENV"))
 
 	aiProxyManagerBaseURL := normalizeAIProxyManagerBaseURL(strings.TrimSpace(os.Getenv("AIPROXY_MANAGER_BASE_URL")))
 	if aiProxyManagerBaseURL == "" {
@@ -87,7 +87,11 @@ func normalizeRegion(value string) string {
 	}
 }
 
-func loadDotEnv() {
+func loadDotEnv(flag string) {
+	if strings.TrimSpace(flag) != "1" {
+		return
+	}
+
 	values, err := godotenv.Read(".env")
 	if err != nil {
 		return

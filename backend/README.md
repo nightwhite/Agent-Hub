@@ -129,7 +129,7 @@ cp .env.example .env
 go run cmd/app/main.go
 ```
 
-后端启动时会自动读取当前工作目录下的 `.env`，默认约定就是 `backend/.env`。
+后端仅在 `LOAD_DOTENV=1` 时读取当前工作目录下的 `.env`，默认约定是 `backend/.env`。
 
 如果你不想落文件，也可以继续直接内联环境变量启动：
 
@@ -147,14 +147,15 @@ REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-
 - `PORT`：默认 `8999`
 - `INGRESS_SUFFIX`：默认 `agent.usw-1.sealos.app`
 - `AGENT_IMAGE`：默认 `nousresearch/hermes-agent:latest`
-- `AGENT_MANIFEST_TEMPLATE_DIR`：默认自动探测仓库内 `template/hermes-agent/manifests`
+- `AGENT_MANIFEST_TEMPLATE_DIR`：模板目录根路径（容器建议值 `/app/template`，本地默认自动探测仓库内 `template/`）
 - `AIPROXY_BASE_URL`：AIProxy token 管理地址，默认 `https://aiproxy-web.hzh.sealos.run`
 - `K8S_PROXY_ALLOWED_HOSTS`：K8s API 反向代理允许的目标主机白名单（逗号分隔，支持精确主机或 `.suffix` 后缀规则），默认 `.sealos.io,.sealos.run`
 - `REGION`：模型预设区域，支持 `us` / `cn`，必须显式配置
+- `LOAD_DOTENV`：是否读取 `.env`（`1` 表示开启，默认关闭）
 
 说明：
 - 本地开发统一使用 `backend/.env`
-- `.env` 只用于本地启动；Sealos 线上部署仍然使用 Deployment `env`
+- `.env` 只用于本地启动（需 `LOAD_DOTENV=1`）；Sealos 线上部署仍然使用 Deployment `env`
 - `AIPROXY_BASE_URL` 只用于后端访问 AIProxy token 管理接口
 - Hermes 部署时写入 `agent-model-baseurl` 的模型地址，不走这个配置
 - 当前前后端会根据集群地址自动推导模型地址，例如 `https://usw-1.sealos.io:6443` 会推导为 `https://aiproxy.usw-1.sealos.io/v1`

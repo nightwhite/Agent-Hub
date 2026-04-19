@@ -1,128 +1,128 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { AgentConfigForm } from "./AgentConfigForm";
-import { createTemplateFixture } from "../../../test/agentFixtures";
+import { fireEvent, render, screen } from '@testing-library/react'
+import { AgentConfigForm } from './AgentConfigForm'
+import { createTemplateFixture } from '../../../test/agentFixtures'
 import type {
   AgentBlueprint,
   AgentSettingField,
-} from "../../../domains/agents/types";
+} from '../../../domains/agents/types'
 
 function createBlueprint(): AgentBlueprint {
   return {
-    appName: "demo-agent",
-    aliasName: "Demo Agent",
-    namespace: "ns-test",
-    apiKey: "",
-    apiUrl: "",
-    domainPrefix: "",
-    fullDomain: "",
-    image: "fixture:image",
-    productType: "hermes-agent",
-    state: "Running",
-    runtimeClassName: "devbox-runtime",
-    storageLimit: "10Gi",
+    appName: 'demo-agent',
+    aliasName: 'Demo Agent',
+    namespace: 'ns-test',
+    apiKey: '',
+    apiUrl: '',
+    domainPrefix: '',
+    fullDomain: '',
+    image: 'fixture:image',
+    productType: 'hermes-agent',
+    state: 'Running',
+    runtimeClassName: 'devbox-runtime',
+    storageLimit: '10Gi',
     port: 8642,
-    cpu: "2000m",
-    memory: "4096Mi",
-    profile: "recommended",
-    serviceType: "ClusterIP",
-    protocol: "TCP",
-    user: "hermes",
-    workingDir: "/opt/hermes",
-    argsText: "gateway run",
-    modelProvider: "custom:aiproxy-responses",
-    modelBaseURL: "https://aiproxy.example.com/v1",
-    model: "gpt-5.4-mini",
+    cpu: '2000m',
+    memory: '4096Mi',
+    profile: 'recommended',
+    serviceType: 'ClusterIP',
+    protocol: 'TCP',
+    user: 'hermes',
+    workingDir: '/opt/hermes',
+    argsText: 'gateway run',
+    modelProvider: 'custom:aiproxy-responses',
+    modelBaseURL: 'https://aiproxy.example.com/v1',
+    model: 'gpt-5.4-mini',
     hasModelAPIKey: true,
-    keySource: "workspace-aiproxy",
+    keySource: 'workspace-aiproxy',
     settingsValues: {},
-  };
+  }
 }
 
-describe("AgentConfigForm", () => {
-  it("renders backend-provided model options for the current region and updates provider on selection", () => {
+describe('AgentConfigForm', () => {
+  it('renders backend-provided model options for the current region and updates provider on selection', () => {
     const template = createTemplateFixture({
       modelOptions: [
         {
-          value: "gpt-5.4-mini",
-          label: "GPT-5.4 Mini",
-          helper: "OpenAI",
-          provider: "custom:aiproxy-responses",
-          apiMode: "codex_responses",
+          value: 'gpt-5.4-mini',
+          label: 'GPT-5.4 Mini',
+          helper: 'OpenAI',
+          provider: 'custom:aiproxy-responses',
+          apiMode: 'codex_responses',
         },
         {
-          value: "glm-4.6",
-          label: "GLM-4.6",
-          helper: "GLM",
-          provider: "custom:aiproxy-chat",
-          apiMode: "chat_completions",
+          value: 'glm-4.6',
+          label: 'GLM-4.6',
+          helper: 'GLM',
+          provider: 'custom:aiproxy-chat',
+          apiMode: 'chat_completions',
         },
       ],
-    });
-    const settingCalls: Array<[string, string]> = [];
+    })
+    const settingCalls: Array<[string, string]> = []
 
     render(
       <AgentConfigForm
         blueprint={createBlueprint()}
-        mode="create"
+        mode='create'
         onChange={() => {}}
         onChangeSettingField={(field: AgentSettingField, value: string) =>
           settingCalls.push([field.key, value])
         }
         onSelectPreset={() => {}}
         template={template}
-        workspaceModelBaseURL="https://aiproxy.example.com/v1"
+        workspaceModelBaseURL='https://aiproxy.example.com/v1'
         workspaceModelKeyReady
-        workspaceRegion="us"
+        workspaceRegion='us'
       />,
-    );
+    )
 
     expect(
-      screen.getByRole("option", { name: "GPT-5.4 Mini · OpenAI" }),
-    ).toBeInTheDocument();
+      screen.getByRole('option', { name: 'GPT-5.4 Mini · OpenAI' }),
+    ).toBeInTheDocument()
     expect(
-      screen.getByRole("option", { name: "GLM-4.6 · GLM" }),
-    ).toBeInTheDocument();
+      screen.getByRole('option', { name: 'GLM-4.6 · GLM' }),
+    ).toBeInTheDocument()
 
-    fireEvent.change(screen.getByRole("combobox"), {
-      target: { value: "glm-4.6" },
-    });
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'glm-4.6' },
+    })
 
-    expect(settingCalls).toContainEqual(["model", "glm-4.6"]);
-    expect(settingCalls).toContainEqual(["provider", "custom:aiproxy-chat"]);
-  });
+    expect(settingCalls).toContainEqual(['model', 'glm-4.6'])
+    expect(settingCalls).toContainEqual(['provider', 'custom:aiproxy-chat'])
+  })
 
-  it("only renders the catalog options passed from the current regional template snapshot", () => {
+  it('only renders the catalog options passed from the current regional template snapshot', () => {
     const template = createTemplateFixture({
       modelOptions: [
         {
-          value: "glm-4.6",
-          label: "GLM-4.6",
-          helper: "GLM",
-          provider: "custom:aiproxy-chat",
-          apiMode: "chat_completions",
+          value: 'glm-4.6',
+          label: 'GLM-4.6',
+          helper: 'GLM',
+          provider: 'custom:aiproxy-chat',
+          apiMode: 'chat_completions',
         },
       ],
-    });
+    })
 
     render(
       <AgentConfigForm
         blueprint={createBlueprint()}
-        mode="create"
+        mode='create'
         onChange={() => {}}
         onChangeSettingField={() => {}}
         onSelectPreset={() => {}}
         template={template}
-        workspaceModelBaseURL="https://aiproxy.example.com/v1"
+        workspaceModelBaseURL='https://aiproxy.example.com/v1'
         workspaceModelKeyReady
-        workspaceRegion="cn"
+        workspaceRegion='cn'
       />,
-    );
+    )
 
     expect(
-      screen.getByRole("option", { name: "GLM-4.6 · GLM" }),
-    ).toBeInTheDocument();
+      screen.getByRole('option', { name: 'GLM-4.6 · GLM' }),
+    ).toBeInTheDocument()
     expect(
-      screen.queryByRole("option", { name: "GPT-5.4 Mini · OpenAI" }),
-    ).not.toBeInTheDocument();
-  });
-});
+      screen.queryByRole('option', { name: 'GPT-5.4 Mini · OpenAI' }),
+    ).not.toBeInTheDocument()
+  })
+})

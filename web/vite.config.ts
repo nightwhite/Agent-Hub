@@ -314,8 +314,11 @@ const createAgentHubBrandHtmlPlugin = () => ({
   name: 'agenthub-brand-html',
   transformIndexHtml(html: string) {
     return html
-      .replaceAll('__AGENT_HUB_BROWSER_TITLE__', AGENT_HUB_BROWSER_TITLE)
-      .replaceAll('__AGENT_HUB_FAVICON_URL__', AGENT_HUB_FAVICON_URL)
+      .replace('<title>Agent Hub Web</title>', `<title>${AGENT_HUB_BROWSER_TITLE}</title>`)
+      .replace(
+        '<link rel="icon" type="image/svg+xml" href="/brand/agent-hub.svg" />',
+        `<link rel="icon" type="image/svg+xml" href="${AGENT_HUB_FAVICON_URL}" />`,
+      )
   },
 })
 

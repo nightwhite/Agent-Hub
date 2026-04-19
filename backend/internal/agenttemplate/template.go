@@ -190,6 +190,7 @@ func resolveTemplateRootDir(templateID, override string) (string, error) {
 	candidates := []string{}
 
 	if trimmed := strings.TrimSpace(override); trimmed != "" {
+		candidates = append(candidates, filepath.Join(trimmed, templateID))
 		candidates = append(candidates, trimmed)
 	}
 

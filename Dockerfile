@@ -21,11 +21,11 @@ WORKDIR /app
 
 ENV PORT=8999
 ENV WEB_DIST_DIR=/app/web/dist
-ENV AGENT_MANIFEST_TEMPLATE_DIR=/app/template/hermes-agent
+ENV AGENT_MANIFEST_TEMPLATE_DIR=/app/template
 
 COPY --from=go-build /out/agenthub /app/agenthub
 COPY --from=web-build /src/web/dist /app/web/dist
-COPY template/hermes-agent /app/template/hermes-agent
+COPY template/ /app/template/
 
 EXPOSE 8999
 

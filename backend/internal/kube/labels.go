@@ -58,7 +58,7 @@ func Annotations(spec agent.Agent) map[string]string {
 }
 
 func ManagedSelector(agentName string) string {
-	return fmt.Sprintf("agent.sealos.io/name=%s", agentName)
+	return fmt.Sprintf("agent.sealos.io/name=%s,agent.sealos.io/managed-by=%s", agentName, managedByValue)
 }
 
 func ManagedListSelector() string {
