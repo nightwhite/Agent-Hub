@@ -66,6 +66,48 @@ func TestResolveAgentPodReturnsNotReadyWhenContainerIsUnavailable(t *testing.T) 
 	}
 }
 
+func TestResolveAgentPodFallsBackToLegacySelectorWithoutManagedBy(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	clientset := fake.NewSimpleClientset(
+		newAgentPodForResolveTestWithoutManagedBy("agent-legacy", "hermes", metav1.NewTime(now), true, false),
+	)
+
+	got, err := ResolveAgentPod(context.Background(), clientset, "ns-test", "hermes")
+	if err != nil {
+		t.Fatalf("ResolveAgentPod() error = %v, want nil", err)
+	}
+	if got.Name != "agent-legacy" {
+		t.Fatalf("ResolveAgentPod() pod name = %q, want %q", got.Name, "agent-legacy")
+	}
+	if got.Container != "hermes" {
+		t.Fatalf("ResolveAgentPod() container = %q, want %q", got.Container, "hermes")
+	}
+}
+
+func TestResolveAgentPodLegacySelectorSkipsPodsManagedByOthers(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	otherManaged := newAgentPodForResolveTest("agent-other-managed", "hermes", metav1.NewTime(now), true, false)
+	otherManaged.Labels["agent.sealos.io/managed-by"] = "another-controller"
+	legacy := newAgentPodForResolveTestWithoutManagedBy("agent-legacy", "hermes", metav1.NewTime(now.Add(-time.Minute)), true, false)
+
+	clientset := fake.NewSimpleClientset(otherManaged, legacy)
+
+	got, err := ResolveAgentPod(context.Background(), clientset, "ns-test", "hermes")
+	if err != nil {
+		t.Fatalf("ResolveAgentPod() error = %v, want nil", err)
+	}
+	if got.Name != "agent-legacy" {
+		t.Fatalf("ResolveAgentPod() pod name = %q, want %q", got.Name, "agent-legacy")
+	}
+	if got.Container != "hermes" {
+		t.Fatalf("ResolveAgentPod() container = %q, want %q", got.Container, "hermes")
+	}
+}
+
 func newAgentPodForResolveTest(name, agentName string, createdAt metav1.Time, ready bool, deleting bool) *corev1.Pod {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -103,5 +145,11 @@ func newAgentPodForResolveTest(name, agentName string, createdAt metav1.Time, re
 		pod.DeletionTimestamp = &now
 	}
 
+	return pod
+}
+
+func newAgentPodForResolveTestWithoutManagedBy(name, agentName string, createdAt metav1.Time, ready bool, deleting bool) *corev1.Pod {
+	pod := newAgentPodForResolveTest(name, agentName, createdAt, ready, deleting)
+	delete(pod.Labels, "agent.sealos.io/managed-by")
 	return pod
 }

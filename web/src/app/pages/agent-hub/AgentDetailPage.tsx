@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useLocation,
   useNavigate,
@@ -40,6 +40,8 @@ export function AgentDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const controller = useAgentHub();
   const { findItemByName, primeItem } = controller;
+  const resolvingMissingRef = useRef(false);
+  const [resolvingMissing, setResolvingMissing] = useState(false);
   const [runtimeEditingItem, setRuntimeEditingItem] =
     useState<AgentListItem | null>(null);
   const [settingsEditingItem, setSettingsEditingItem] =
@@ -89,6 +91,72 @@ export function AgentDetailPage() {
   }, [navigationItem, primeItem]);
 
   const item = findItemByName(agentName) || navigationItem;
+
+  useEffect(() => {
+    if (!agentName || item || controller.loading || resolvingMissingRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    let pendingSleepTimer: number | null = null;
+    let wakePendingSleep: (() => void) | null = null;
+    resolvingMissingRef.current = true;
+    setResolvingMissing(true);
+
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        const finish = () => {
+          if (pendingSleepTimer != null) {
+            window.clearTimeout(pendingSleepTimer);
+            pendingSleepTimer = null;
+          }
+          wakePendingSleep = null;
+          resolve();
+        };
+        wakePendingSleep = finish;
+        pendingSleepTimer = window.setTimeout(finish, ms);
+      });
+
+    const recoverItem = async () => {
+      try {
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          const fetched = await controller.fetchAgentByName(agentName).catch(
+            () => null,
+          );
+          if (fetched) {
+            return;
+          }
+          await sleep(800);
+          if (cancelled) {
+            return;
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setResolvingMissing(false);
+        }
+        resolvingMissingRef.current = false;
+      }
+    };
+
+    void recoverItem();
+
+    return () => {
+      cancelled = true;
+      resolvingMissingRef.current = false;
+      if (wakePendingSleep) {
+        wakePendingSleep();
+      } else if (pendingSleepTimer != null) {
+        window.clearTimeout(pendingSleepTimer);
+        pendingSleepTimer = null;
+      }
+    };
+  }, [
+    agentName,
+    item,
+    controller.loading,
+    controller.fetchAgentByName,
+  ]);
 
   const currentTab = useMemo<AgentDetailTab>(() => {
     const value = searchParams.get("tab");
@@ -321,7 +389,7 @@ export function AgentDetailPage() {
     }
   };
 
-  if (controller.loading && !item) {
+  if ((controller.loading || resolvingMissing) && !item) {
     return (
       <AgentWorkspaceShell>
         <div className="flex h-full min-w-0 flex-col px-3 min-[1280px]:px-6">

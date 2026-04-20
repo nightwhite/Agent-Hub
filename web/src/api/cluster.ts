@@ -111,13 +111,47 @@ const parseKubeconfigValues = (kubeconfig = '', key) => {
 
 const parseKubeconfigValue = (kubeconfig = '', key) => parseKubeconfigValues(kubeconfig, key)[0] || ''
 
+const normalizeKubeconfig = (raw = '') => {
+  const source = toKubeconfigScalar(raw)
+  if (!source) return ''
+
+  const trimmed = source.trim()
+  if (!trimmed) return ''
+
+  const looksEncoded =
+    /%0A|%3A|%2F|%20/i.test(trimmed) &&
+    !/\n/.test(trimmed)
+
+  if (!looksEncoded) {
+    return trimmed
+  }
+
+  try {
+    const decoded = decodeURIComponent(trimmed).trim()
+    if (/^apiVersion:/m.test(decoded) && /^clusters:/m.test(decoded)) {
+      return decoded
+    }
+  } catch (error) {
+    console.warn('[k8s-api] decode kubeconfig failed', {
+      message: error?.message,
+    })
+  }
+
+  return trimmed
+}
+
 export const createClusterContext = (session) => {
   const storedKubeconfig = typeof window !== 'undefined' ? sessionStorage.getItem('hermes-kubeconfig') || '' : ''
   const storedOperator = typeof window !== 'undefined' ? sessionStorage.getItem('hermes-operator') || '' : ''
-  const kubeconfig = session?.kubeconfig || storedKubeconfig
+  const kubeconfig = normalizeKubeconfig(session?.kubeconfig || session?.kc || storedKubeconfig)
   const parsedKubeconfig = parseKubeconfigStruct(kubeconfig)
-  const server = parsedKubeconfig.server || parseKubeconfigValue(kubeconfig, 'server')
-  const namespace = parsedKubeconfig.namespace || parseKubeconfigValue(kubeconfig, 'namespace')
+  const server = toKubeconfigScalar(session?.server || parsedKubeconfig.server || parseKubeconfigValue(kubeconfig, 'server'))
+  const namespace = toKubeconfigScalar(
+    session?.namespace ||
+      session?.user?.nsid ||
+      parsedKubeconfig.namespace ||
+      parseKubeconfigValue(kubeconfig, 'namespace'),
+  )
   const sessionToken = toKubeconfigScalar(session?.token)
   const authCandidates = dedupeAuthCandidates([
     ...(parsedKubeconfig.authCandidates || []),
@@ -139,16 +173,16 @@ export const createClusterContext = (session) => {
   const operator = session?.user?.id || session?.user?.name || storedOperator || 'workspace'
   const agentLabel = operator
 
+  if (!kubeconfig) {
+    throw new Error('未从 Sealos SDK 中读取到 kubeconfig，无法调用后端管理 API')
+  }
+
   if (!server) {
     throw new Error('未从 kubeconfig 中解析到 API Server 地址')
   }
 
   if (!namespace) {
     throw new Error('未从 sdk session 中解析到 namespace')
-  }
-
-  if (!kubeconfig) {
-    throw new Error('未从 Sealos SDK 中读取到 kubeconfig，无法调用后端管理 API')
   }
 
   if (typeof window !== 'undefined') {

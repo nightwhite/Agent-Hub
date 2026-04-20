@@ -61,6 +61,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
   const outputBacklogRef = useRef<string[]>([])
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<number | null>(null)
+  const pendingResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const connectSocketRef = useRef<(version: number, plan: ReconnectPlan, mode: 'fresh' | 'reconnect') => void>(() => {})
   const reconnectPlanRef = useRef<ReconnectPlan>({
     resource: null,
@@ -83,6 +84,33 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
     requestSeqRef.current += 1
     return `${prefix}-${Date.now()}-${requestSeqRef.current}`
   }, [])
+
+  const sendTerminalResize = useCallback((
+    socket: WebSocket,
+    terminalId: string,
+    cols: number,
+    rows: number,
+  ) => {
+    if (socket.readyState !== WebSocket.OPEN || !terminalId) {
+      return false
+    }
+    if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols <= 0 || rows <= 0) {
+      return false
+    }
+
+    socket.send(
+      JSON.stringify({
+        type: 'terminal.resize',
+        requestId: nextRequestId('terminal.resize'),
+        data: {
+          id: terminalId,
+          cols: Math.floor(cols),
+          rows: Math.floor(rows),
+        },
+      }),
+    )
+    return true
+  }, [nextRequestId])
 
   const emitOutput = useCallback((chunk: string) => {
     if (!chunk) return
@@ -228,6 +256,12 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
                 }
               : current,
           )
+          if (pendingResizeRef.current) {
+            const { cols, rows } = pendingResizeRef.current
+            if (sendTerminalResize(socket, messageTerminalID, cols, rows)) {
+              pendingResizeRef.current = null
+            }
+          }
           if (mode === 'reconnect') {
             emitOutput('\r\n\x1b[90mConnection restored.\x1b[0m\r\n')
           }
@@ -351,7 +385,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
         connectSocketRef.current(version, reconnectPlanRef.current, 'reconnect')
       }, delay)
     })
-  }, [clearReconnectTimer, closeSocket, emitOutput, nextRequestId, onErrorMessage, syncSession])
+  }, [clearReconnectTimer, closeSocket, emitOutput, nextRequestId, onErrorMessage, sendTerminalResize, syncSession])
 
   useEffect(() => {
     connectSocketRef.current = connectSocket
@@ -364,6 +398,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
 
       clearReconnectTimer()
       reconnectAttemptsRef.current = 0
+      pendingResizeRef.current = null
       outputBacklogRef.current = []
       closeSocket()
 
@@ -428,29 +463,27 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
 
   const resizeTerminal = useCallback(
     (cols: number, rows: number) => {
+      const normalizedCols = Math.floor(cols)
+      const normalizedRows = Math.floor(rows)
+      if (!Number.isFinite(normalizedCols) || !Number.isFinite(normalizedRows) || normalizedCols <= 0 || normalizedRows <= 0) {
+        return
+      }
+      pendingResizeRef.current = {
+        cols: normalizedCols,
+        rows: normalizedRows,
+      }
+
       const socket = socketRef.current
       const current = terminalSessionRef.current
-      if (!socket || socket.readyState !== WebSocket.OPEN || !current?.terminalId || current.status !== 'connected') {
+      if (!socket || !current?.terminalId || current.status !== 'connected') {
         return
       }
 
-      if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols <= 0 || rows <= 0) {
-        return
+      if (sendTerminalResize(socket, current.terminalId, normalizedCols, normalizedRows)) {
+        pendingResizeRef.current = null
       }
-
-      socket.send(
-        JSON.stringify({
-          type: 'terminal.resize',
-          requestId: nextRequestId('terminal.resize'),
-          data: {
-            id: current.terminalId,
-            cols: Math.floor(cols),
-            rows: Math.floor(rows),
-          },
-        }),
-      )
     },
-    [nextRequestId],
+    [sendTerminalResize],
   )
 
   const markTerminalConnected = useCallback(() => {
@@ -484,6 +517,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
     requestVersionRef.current += 1
     clearReconnectTimer()
     reconnectAttemptsRef.current = 0
+    pendingResizeRef.current = null
 
     const socket = socketRef.current
     const current = terminalSessionRef.current

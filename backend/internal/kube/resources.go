@@ -225,6 +225,7 @@ func cloneStringMap(input map[string]string) map[string]string {
 
 func managedSelectorLabels(agentName string) map[string]string {
 	return map[string]string{
-		"agent.sealos.io/name": agentName,
+		"agent.sealos.io/name":       agentName,
+		"agent.sealos.io/managed-by": managedByValue,
 	}
 }

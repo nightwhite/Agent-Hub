@@ -70,6 +70,10 @@ export function AgentTerminalWorkspace({
   const detachOutputRef = useRef<(() => void) | null>(null)
   const connectedTerminalIdRef = useRef('')
   const announcedStateRef = useRef('')
+  const lastResizeRef = useRef({ cols: 0, rows: 0 })
+  const previousStatusRef = useRef<TerminalSessionState['status'] | ''>('')
+  const outputQueueRef = useRef<string[]>([])
+  const outputFlushFrameRef = useRef<number | null>(null)
 
   useEffect(() => {
     inputHandlerRef.current = onInput
@@ -90,6 +94,7 @@ export function AgentTerminalWorkspace({
   useEffect(() => {
     connectedTerminalIdRef.current = ''
     announcedStateRef.current = ''
+    previousStatusRef.current = ''
   }, [session?.terminalId])
 
   useEffect(() => {
@@ -120,7 +125,10 @@ export function AgentTerminalWorkspace({
       fitAddonRef.current.fit()
       const { cols, rows } = terminalRef.current
       if (cols > 0 && rows > 0) {
-        resizeHandlerRef.current?.(cols, rows)
+        if (cols !== lastResizeRef.current.cols || rows !== lastResizeRef.current.rows) {
+          lastResizeRef.current = { cols, rows }
+          resizeHandlerRef.current?.(cols, rows)
+        }
       }
     }
 
@@ -142,12 +150,31 @@ export function AgentTerminalWorkspace({
     })
 
     if (onAttachOutput) {
+      const flushOutputQueue = () => {
+        outputFlushFrameRef.current = null
+        if (!terminalRef.current || outputQueueRef.current.length === 0) return
+        const merged = outputQueueRef.current.join('')
+        outputQueueRef.current = []
+        if (merged) {
+          terminalRef.current.write(merged)
+        }
+      }
+
       detachOutputRef.current = onAttachOutput((chunk) => {
-        terminalRef.current?.write(chunk)
+        if (!chunk) return
+        outputQueueRef.current.push(chunk)
+        if (outputFlushFrameRef.current === null) {
+          outputFlushFrameRef.current = window.requestAnimationFrame(flushOutputQueue)
+        }
       })
     }
 
     return () => {
+      if (outputFlushFrameRef.current !== null) {
+        window.cancelAnimationFrame(outputFlushFrameRef.current)
+        outputFlushFrameRef.current = null
+      }
+      outputQueueRef.current = []
       detachOutputRef.current?.()
       detachOutputRef.current = null
       resizeObserver.disconnect()
@@ -157,20 +184,29 @@ export function AgentTerminalWorkspace({
       terminalRef.current = null
       fitAddonRef.current = null
       resizeNowRef.current = () => {}
+      lastResizeRef.current = { cols: 0, rows: 0 }
     }
-  }, [onAttachOutput, session])
+  }, [onAttachOutput, session?.terminalId])
 
   useEffect(() => {
     if (!session || !terminalRef.current) return
 
-    if (session.status === 'connected' && connectedTerminalIdRef.current !== session.terminalId) {
-      connectedTerminalIdRef.current = session.terminalId
-      terminalRef.current.clear()
+    const becameConnected = session.status === 'connected' && previousStatusRef.current !== 'connected'
+    const switchedTerminal = connectedTerminalIdRef.current !== session.terminalId
+
+    if (session.status === 'connected' && becameConnected) {
+      if (switchedTerminal) {
+        connectedTerminalIdRef.current = session.terminalId
+        terminalRef.current.clear()
+      }
+      // Force one terminal.resize after each successful connect/reconnect.
+      lastResizeRef.current = { cols: 0, rows: 0 }
       terminalRef.current.focus()
       window.requestAnimationFrame(() => {
         resizeNowRef.current()
       })
       readyHandlerRef.current?.()
+      previousStatusRef.current = session.status
       return
     }
 
@@ -185,6 +221,7 @@ export function AgentTerminalWorkspace({
       announcedStateRef.current = 'disconnected'
       terminalRef.current.writeln('\r\n\x1b[33m终端连接已关闭。\x1b[0m')
     }
+    previousStatusRef.current = session.status
   }, [session])
 
   if (!session) {
@@ -256,7 +293,7 @@ export function AgentTerminalWorkspace({
       <div className="min-h-0 flex-1 px-4 py-4">
         <div className="relative h-full overflow-hidden rounded-xl border border-slate-900 bg-[#05070a] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           <div
-            className="h-full min-h-[360px] w-full bg-[#05070a] [&_.xterm]:h-full [&_.xterm-screen]:h-full [&_.xterm-viewport]:overflow-y-auto"
+            className="h-full min-h-[360px] w-full bg-[#05070a] [scrollbar-gutter:stable] [&_.xterm]:h-full [&_.xterm-screen]:h-full [&_.xterm-viewport]:overflow-y-auto"
             ref={containerRef}
           />
 

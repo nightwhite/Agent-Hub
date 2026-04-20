@@ -491,8 +491,10 @@ func TestCreateAgentValidationErrorsUse422Envelope(t *testing.T) {
 	if body.Error == nil || body.Error.Type != "validation_failed" {
 		t.Fatalf("POST /api/v1/agents invalid payload error = %#v, want validation_failed", body.Error)
 	}
-	if body.Error.Details["field"] != "settings.provider" && body.Error.Details["field"] != "settings.baseURL" {
-		t.Fatalf("POST /api/v1/agents invalid payload error.details.field = %#v, want settings.provider/settings.baseURL", body.Error.Details["field"])
+	if body.Error.Details["field"] != "settings.provider" &&
+		body.Error.Details["field"] != "settings.baseURL" &&
+		body.Error.Details["field"] != "settings.model" {
+		t.Fatalf("POST /api/v1/agents invalid payload error.details.field = %#v, want settings.provider/settings.baseURL/settings.model", body.Error.Details["field"])
 	}
 	if body.Error.Details["reason"] != "unsupported_field" && body.Error.Details["reason"] != "invalid_url" {
 		t.Fatalf("POST /api/v1/agents invalid payload error.details.reason = %#v, want unsupported_field/invalid_url", body.Error.Details["reason"])
