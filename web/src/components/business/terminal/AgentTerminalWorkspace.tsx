@@ -70,7 +70,6 @@ export function AgentTerminalWorkspace({
   const detachOutputRef = useRef<(() => void) | null>(null)
   const connectedTerminalIdRef = useRef('')
   const announcedStateRef = useRef('')
-  const sessionActive = Boolean(session)
   const lastResizeRef = useRef({ cols: 0, rows: 0 })
   const previousStatusRef = useRef<TerminalSessionState['status'] | ''>('')
   const outputQueueRef = useRef<string[]>([])
@@ -95,10 +94,11 @@ export function AgentTerminalWorkspace({
   useEffect(() => {
     connectedTerminalIdRef.current = ''
     announcedStateRef.current = ''
+    previousStatusRef.current = ''
   }, [session?.terminalId])
 
   useEffect(() => {
-    if (!sessionActive || !containerRef.current) return
+    if (!session || !containerRef.current) return
 
     const terminal = new XTerm({
       allowTransparency: false,
@@ -186,7 +186,7 @@ export function AgentTerminalWorkspace({
       resizeNowRef.current = () => {}
       lastResizeRef.current = { cols: 0, rows: 0 }
     }
-  }, [onAttachOutput, sessionActive])
+  }, [onAttachOutput, session?.terminalId])
 
   useEffect(() => {
     if (!session || !terminalRef.current) return
