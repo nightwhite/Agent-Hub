@@ -9,10 +9,11 @@ export const updateBlueprintField = (
   const next = { ...current, [field]: value }
 
   if (field === 'cpu' || field === 'memory') {
-    next.profile = resolveResourcePreset(
+    const resolvedPreset = resolveResourcePreset(
       field === 'cpu' ? value : next.cpu,
       field === 'memory' ? value : next.memory,
     )
+    next.profile = current.profile === 'custom' ? 'custom' : resolvedPreset
   }
 
   return next

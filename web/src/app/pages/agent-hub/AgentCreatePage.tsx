@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AgentConfigForm } from "../../../components/business/agents/AgentConfigForm";
 import { Button } from "../../../components/ui/Button";
@@ -6,14 +6,12 @@ import { AgentCreateSidebar } from "./components/AgentCreateSidebar";
 import { AgentCreateHeader } from "./components/AgentCreateHeader";
 import { AgentHubOverview } from "./components/AgentHubOverview";
 import { AgentWorkspaceShell } from "./components/AgentWorkspaceShell";
-import { AGENT_HUB_DIALOG_CONTENT_CLASSNAME } from "./components/workspaceLayout";
 import { useAgentHub } from "./hooks/AgentHubControllerContext";
 import { applyBlueprintPreset, updateBlueprintField } from "./lib/blueprint";
 import { buildAgentDetailRouteState } from "./lib/navigation";
 import { createEmptyBlueprint } from "../../../domains/agents/templates";
 import { writeBlueprintSettingValue } from "../../../domains/agents/blueprintFields";
 import type { AgentBlueprint } from "../../../domains/agents/types";
-import { cn } from "../../../lib/format";
 
 export function AgentCreatePage() {
   const navigate = useNavigate();
@@ -35,6 +33,10 @@ export function AgentCreatePage() {
   } = controller;
   const [blueprint, setBlueprint] = useState<AgentBlueprint>(() =>
     createEmptyBlueprint(),
+  );
+  const mainColumnRef = useRef<HTMLElement | null>(null);
+  const [syncedSidebarHeight, setSyncedSidebarHeight] = useState<number | null>(
+    null,
   );
   const selectedTemplateId = useMemo(
     () => String(searchParams.get("template") || "").trim(),
@@ -82,6 +84,35 @@ export function AgentCreatePage() {
     };
   }, [clusterContext, prepareCreateBlueprint, selectedTemplateId, setMessage]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mainColumn = mainColumnRef.current;
+    if (!mainColumn) return;
+
+    const syncHeight = () => {
+      if (window.innerWidth < 1280) {
+        setSyncedSidebarHeight(null);
+        return;
+      }
+      const next = Math.ceil(mainColumn.getBoundingClientRect().height);
+      setSyncedSidebarHeight(next > 0 ? next : null);
+    };
+
+    syncHeight();
+
+    const resizeObserver = new ResizeObserver(() => {
+      syncHeight();
+    });
+    resizeObserver.observe(mainColumn);
+    window.addEventListener("resize", syncHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", syncHeight);
+    };
+  }, [selectedTemplateId, loading, clusterContext, selectedTemplate, blueprint]);
+
   const handleBlueprintChange = (
     field: keyof AgentBlueprint,
     value: string,
@@ -117,11 +148,11 @@ export function AgentCreatePage() {
 
   return (
     <AgentWorkspaceShell>
-      <div className="flex h-full flex-col">
+      <div className="flex h-full min-w-0 flex-col bg-[#fafafa]">
         <AgentCreateHeader
           description={
             selectedTemplate
-              ? `基于 ${selectedTemplate.name} 创建实例`
+              ? `按 ${selectedTemplate.name} 模板创建新的 Agent 实例`
               : undefined
           }
           onBack={() => navigate("/agents/templates")}
@@ -133,6 +164,7 @@ export function AgentCreatePage() {
           actions={
             <>
               <Button
+                className="h-10 min-w-[124px] rounded-[8px] border-zinc-200 px-4 text-[14px] leading-5 font-medium text-zinc-900 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
                 onClick={() => navigate("/agents/templates")}
                 size="md"
                 variant="secondary"
@@ -140,15 +172,7 @@ export function AgentCreatePage() {
                 更换模板
               </Button>
               <Button
-                className="rounded-xl"
-                onClick={() => navigate("/agents")}
-                size="md"
-                variant="ghost"
-              >
-                取消
-              </Button>
-              <Button
-                className="rounded-xl font-semibold"
+                className="h-10 min-w-[124px] rounded-[8px] bg-[#18181b] px-4 text-[14px] leading-5 font-medium text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-black"
                 disabled={
                   submitting || waitingForBlueprint || missingClusterContext
                 }
@@ -162,45 +186,54 @@ export function AgentCreatePage() {
         />
 
         <main className="flex min-h-0 flex-1 overflow-y-auto">
-          <div
-            className={cn(
-              AGENT_HUB_DIALOG_CONTENT_CLASSNAME,
-              "flex flex-col gap-4 pt-4 pb-6",
-            )}
-          >
-            <AgentHubOverview message={message} />
+          <div className="flex w-full min-h-full flex-col gap-5 px-4 pb-12 sm:px-6 sm:pb-14 lg:px-12 lg:pb-10">
+            <AgentHubOverview message={message} onClose={() => setMessage("")} />
 
-            <div className="grid w-full items-start gap-4 min-[1120px]:grid-cols-[250px_minmax(0,1fr)] min-[1360px]:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="grid w-full gap-3 xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]">
               {selectedTemplate ? (
-                <AgentCreateSidebar
-                  blueprint={blueprint}
-                  template={selectedTemplate}
-                />
+                <div
+                  className="min-w-0 xl:w-[300px] 2xl:w-[320px]"
+                  style={
+                    syncedSidebarHeight
+                      ? { height: `${syncedSidebarHeight}px` }
+                      : undefined
+                  }
+                >
+                  <AgentCreateSidebar
+                    blueprint={blueprint}
+                    template={selectedTemplate}
+                    workspaceModelBaseURL={workspaceAIProxyModelBaseURL}
+                    workspaceModelKeyReady={Boolean(workspaceAIProxyToken?.key)}
+                  />
+                </div>
               ) : null}
 
-              <section className="min-w-0 w-full">
+              <section
+                ref={mainColumnRef}
+                className="min-w-0 w-full max-w-[920px] justify-self-center xl:h-full xl:max-w-none xl:justify-self-auto"
+              >
                 {waitingForBlueprint ? (
                   <div className="workbench-card-strong flex min-h-[420px] flex-col items-center justify-center px-6 py-8 text-center">
                     <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">
-                      初始化中
+                      正在准备
                     </div>
-                    <div className="mt-2 text-[1.2rem]/7 font-semibold tracking-[-0.03em] text-zinc-950">
-                      正在载入配置
+                    <div className="mt-2 text-[1.35rem]/8 font-semibold tracking-[-0.03em] text-zinc-950">
+                      正在准备创建配置
                     </div>
-                    <div className="mt-2 max-w-[28rem] text-[12px]/5 text-zinc-500">
-                      请稍候。
+                    <div className="mt-2 max-w-[28rem] text-[13px]/6 text-zinc-500">
+                      正在读取模板与默认配置，请稍候。
                     </div>
                   </div>
                 ) : missingClusterContext ? (
                   <div className="workbench-card-strong flex min-h-[420px] flex-col items-center justify-center px-6 py-8 text-center">
                     <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">
-                      不可用
+                      暂时不可用
                     </div>
-                    <div className="mt-2 text-[1.2rem]/7 font-semibold tracking-[-0.03em] text-zinc-950">
-                      工作区信息不可用
+                    <div className="mt-2 text-[1.35rem]/8 font-semibold tracking-[-0.03em] text-zinc-950">
+                      当前工作区还没准备好
                     </div>
-                    <div className="mt-2 max-w-[30rem] text-[12px]/5 text-zinc-500">
-                      返回列表页后重新进入创建流程。
+                    <div className="mt-2 max-w-[30rem] text-[13px]/6 text-zinc-500">
+                      请先返回列表页再重新进入，然后继续创建。
                     </div>
                     <div className="mt-5">
                       <Button
@@ -216,7 +249,6 @@ export function AgentCreatePage() {
                 ) : (
                   <AgentConfigForm
                     blueprint={blueprint}
-                    mode="create"
                     onChange={handleBlueprintChange}
                     onChangeSettingField={(field, value) => {
                       setBlueprint((current) =>
@@ -227,8 +259,6 @@ export function AgentCreatePage() {
                     onSelectPreset={handleSelectPreset}
                     template={selectedTemplate}
                     workspaceRegion={workspaceRegion}
-                    workspaceModelBaseURL={workspaceAIProxyModelBaseURL}
-                    workspaceModelKeyReady={Boolean(workspaceAIProxyToken?.key)}
                   />
                 )}
               </section>

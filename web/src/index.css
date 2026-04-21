@@ -19,7 +19,7 @@
 
 :root {
   font-family: 'SF Pro Display', 'PingFang SC', 'Helvetica Neue', sans-serif;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   font-weight: 400;
   color: #18181b;
@@ -28,12 +28,6 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-@media (max-width: 640px) {
-  :root {
-    font-size: 14px;
-  }
 }
 
 * {

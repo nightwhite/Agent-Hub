@@ -1,50 +1,81 @@
-import { Cpu, HardDrive, MemoryStick } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { readBlueprintSettingValue } from '../../../../domains/agents/blueprintFields'
 import { formatModelProviderLabel } from '../../../../domains/agents/aiproxy'
 import { formatCpu, formatMemory, formatStorage } from '../../../../lib/format'
-import type { AgentBlueprint, AgentTemplateDefinition } from '../../../../domains/agents/types'
+import type {
+  AgentBlueprint,
+  AgentSettingField,
+  AgentTemplateDefinition,
+} from '../../../../domains/agents/types'
+
+function formatKeySourceLabel(value = '', ready = false) {
+  if (!ready) return '未准备'
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+  if (!normalized || normalized === 'unset') return '未准备'
+  if (normalized === 'workspace-aiproxy') return '由工作区提供'
+  return value
+}
 
 function SidebarSection({
   title,
+  description,
   children,
   className,
 }: {
   title: string
+  description?: string
   children: ReactNode
   className?: string
 }) {
   return (
-    <section className={['workbench-card flex flex-col', className || ''].join(' ')}>
-      <div className="px-4 pt-3 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">{title}</div>
-      <div className="px-4 pt-2 pb-4">{children}</div>
+    <section
+      className={[
+        'workbench-card-strong flex h-full flex-col rounded-[16px]',
+        className || '',
+      ].join(' ')}
+    >
+      <div className="px-6 pt-6">
+        <div className="text-[1.02rem]/6 font-semibold tracking-[-0.02em] text-zinc-950">{title}</div>
+        {description ? <div className="mt-1 text-[13px]/6 text-zinc-500">{description}</div> : null}
+      </div>
+      <div className="px-6 pt-5 pb-6">{children}</div>
     </section>
   )
 }
 
-function SummaryRow({
-  icon,
+function SummaryMetric({
   label,
   value,
-  muted,
 }: {
-  icon: ReactNode
   label: string
   value: string
-  muted?: string
 }) {
   return (
-    <div className="flex items-start justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-      <div className="flex min-w-0 items-center gap-2.5 text-sm text-zinc-600">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-500">
-          {icon}
-        </span>
-        <div className="min-w-0">
-          <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-400">{label}</div>
-          {muted ? <div className="mt-1 text-[12px]/5 text-zinc-500">{muted}</div> : null}
-        </div>
-      </div>
-      <div className="min-w-0 max-w-[108px] text-right text-[1.125rem]/7 font-semibold tracking-[-0.03em] tabular-nums text-zinc-950">
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-400">{label}</div>
+      <div className="mt-1 text-[1rem]/6 font-semibold tracking-[-0.03em] tabular-nums text-zinc-950">
         {value}
+      </div>
+    </div>
+  )
+}
+
+function SummaryField({
+  label,
+  value,
+  mono,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+}) {
+  return (
+    <div className="py-2.5">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-400">{label}</div>
+      <div className={mono ? 'mt-1 break-all font-mono text-[12px]/6 text-zinc-700' : 'mt-1 text-[13px]/6 text-zinc-700'}>
+        {value || '--'}
       </div>
     </div>
   )
@@ -53,76 +84,118 @@ function SummaryRow({
 interface AgentCreateSidebarProps {
   template: AgentTemplateDefinition | null
   blueprint: AgentBlueprint
+  workspaceModelBaseURL: string
+  workspaceModelKeyReady: boolean
 }
 
 export function AgentCreateSidebar({
   template,
   blueprint,
+  workspaceModelBaseURL,
+  workspaceModelKeyReady,
 }: AgentCreateSidebarProps) {
   if (!template) {
     return null
   }
 
-  const accessLabel = template.access.map((access) => access.label).join(' · ')
+  const resolveProviderValue = () => {
+    const current = blueprint.modelProvider.trim()
+    if (current) return current
+    const selectedModel = blueprint.model.trim()
+    if (!selectedModel) return ''
+    const option = template.modelOptions.find((item) => item.value === selectedModel)
+    return String(option?.provider || '').trim()
+  }
+
+  const isDisplayOnlyField = (field: AgentSettingField) => {
+    const bindingKey = String(field.binding?.key || '').trim()
+    return (
+      field.readOnly ||
+      bindingKey === 'modelProvider' ||
+      bindingKey === 'modelBaseURL' ||
+      bindingKey === 'keySource'
+    )
+  }
+
+  const summaryFields = template.settings.agent.filter(isDisplayOnlyField)
+  const resolvedModelBaseURL = workspaceModelBaseURL || blueprint.modelBaseURL
+
+  const renderSummaryField = (field: AgentSettingField) => {
+    const fieldValue = readBlueprintSettingValue(blueprint, field)
+    const bindingKey = String(field.binding?.key || '').trim()
+
+    if (bindingKey === 'modelProvider') {
+      return formatModelProviderLabel(resolveProviderValue())
+    }
+
+    if (bindingKey === 'modelBaseURL') {
+      return resolvedModelBaseURL || '--'
+    }
+
+    if (bindingKey === 'keySource') {
+      return formatKeySourceLabel(fieldValue, workspaceModelKeyReady)
+    }
+
+    return fieldValue || '--'
+  }
 
   return (
-    <aside className="grid w-full gap-4 min-[760px]:grid-cols-2 min-[1120px]:w-[250px] min-[1120px]:grid-cols-1 min-[1360px]:w-[280px]">
-      <SidebarSection title="已选模板">
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border-[0.5px] border-zinc-200 bg-zinc-50">
-            <img alt={`${template.name} logo`} className="h-8 w-8 object-cover" src={template.logo} />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-[1.05rem]/6 font-semibold tracking-[-0.02em] text-zinc-950">{template.name}</div>
-            <div className="mt-0.5 text-[12px]/5 text-zinc-500">{template.docsLabel}</div>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px]/4 font-medium text-zinc-600">
-                {accessLabel || '基础能力'}
-              </span>
-            </div>
-            <div className="mt-2 text-[13px]/6 text-zinc-500">{template.description}</div>
-          </div>
-        </div>
-      </SidebarSection>
-
-      <SidebarSection title="部署摘要">
-        <div className="space-y-2">
-          <div className="rounded-2xl border-[0.5px] border-zinc-200 bg-zinc-50 px-3 py-3">
+    <aside className="grid h-full w-full gap-4 min-[760px]:grid-cols-2 min-[980px]:grid-cols-1">
+      <SidebarSection
+        description="这里汇总当前创建单里的核心信息，提交前在这一张卡里快速确认就可以。"
+        title="摘要卡片"
+        className="h-full"
+      >
+        <div className="space-y-4">
+          <div className="border-b border-zinc-200 pb-4">
             <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-400">别名</div>
-            <div className="mt-1.5 text-lg/7 font-semibold tracking-[-0.03em] text-zinc-950">
+            <div className="mt-1.5 text-[1.15rem]/7 font-semibold tracking-[-0.03em] text-zinc-950">
               {blueprint.aliasName || '未填写'}
             </div>
-            <div className="mt-1 text-[12px]/5 text-zinc-500">实例名由系统自动生成。</div>
+            <div className="mt-1 text-[12px]/5 text-zinc-500">实例名称会在提交后自动生成并用于资源关联。</div>
           </div>
 
-          <SummaryRow
-            icon={<Cpu size={15} />}
-            label="CPU"
-            value={formatCpu(blueprint.cpu)}
-          />
-          <SummaryRow
-            icon={<MemoryStick size={15} />}
-            label="内存"
-            value={formatMemory(blueprint.memory)}
-          />
-          <SummaryRow
-            icon={<HardDrive size={15} />}
-            label="存储"
-            value={formatStorage(blueprint.storageLimit)}
-          />
-
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+          <div className="border-b border-zinc-200 pb-4">
             <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-400">模型</div>
-            <div className="mt-1.5 truncate text-[1rem]/6 font-semibold tracking-[-0.02em] text-zinc-950">
+            <div className="mt-1.5 break-all text-[1rem]/6 font-semibold tracking-[-0.02em] text-zinc-950">
               {blueprint.model || '未选择'}
             </div>
-            <div className="mt-1 text-[12px]/5 text-zinc-500">
-              模型渠道：{formatModelProviderLabel(blueprint.modelProvider)}
-            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <SummaryMetric label="CPU" value={formatCpu(blueprint.cpu)} />
+            <SummaryMetric label="内存" value={formatMemory(blueprint.memory)} />
+            <SummaryMetric label="存储" value={formatStorage(blueprint.storageLimit)} />
+          </div>
+
+          <div className="divide-y divide-zinc-200">
+            <SummaryField
+              label="实例名称"
+              mono
+              value={blueprint.appName || '提交后自动生成'}
+            />
+            <SummaryField
+              label="命名空间"
+              mono
+              value={blueprint.namespace || '--'}
+            />
+            {summaryFields.map((field) => {
+              const bindingKey = String(field.binding?.key || '').trim()
+              const value = renderSummaryField(field)
+              const mono = bindingKey === 'modelBaseURL' || bindingKey === 'keySource'
+
+              return (
+                <SummaryField
+                  key={field.key}
+                  label={field.label}
+                  mono={mono}
+                  value={value}
+                />
+              )
+            })}
           </div>
         </div>
       </SidebarSection>
-
     </aside>
   )
 }

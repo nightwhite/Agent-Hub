@@ -16,22 +16,31 @@ import { cn, formatTime } from '../../../../lib/format'
 
 function Panel({
   title,
+  description,
   extra,
   className,
   children,
 }: {
   title: string
+  description?: string
   extra?: ReactNode
   className?: string
   children: ReactNode
 }) {
   return (
-    <section className={cn('workbench-card flex flex-col px-4 py-3.5', className)}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-[1.02rem]/6 font-semibold tracking-[-0.02em] text-zinc-950">{title}</div>
-        {extra}
+    <section className={cn('workbench-card overflow-hidden rounded-[12px] p-0', className)}>
+      <div className="flex flex-col gap-4 bg-white px-6 pb-5 pt-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[18px]/7 font-semibold tracking-[-0.01em] text-zinc-950">{title}</div>
+            {description ? (
+              <div className="mt-1 text-[14px]/5 text-zinc-500">{description}</div>
+            ) : null}
+          </div>
+          {extra}
+        </div>
+        <div>{children}</div>
       </div>
-      <div className="mt-2.5">{children}</div>
     </section>
   )
 }
@@ -60,26 +69,100 @@ function MetaItem({
   )
 }
 
-function BasicInfoRow({
-  items,
+function BasicInfoField({
+  label,
+  value,
+  mono = false,
 }: {
-  items: Array<{
-    label: string
-    value: string
-    mono?: boolean
-  }>
+  label: string
+  value: string
+  mono?: boolean
 }) {
-  if (items.length === 1) {
-    const [item] = items
-    return <MetaItem label={item.label} mono={item.mono} value={item.value} />
-  }
-
   return (
-    <div className="grid gap-2.5 min-[860px]:grid-cols-2">
-      {items.map((item) => (
-        <MetaItem key={item.label} label={item.label} mono={item.mono} value={item.value} />
-      ))}
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="text-[14px]/none text-zinc-500">{label}</div>
+      <div
+        className={cn(
+          'min-w-0 text-[14px]/none text-zinc-600',
+          mono && 'break-all font-mono text-[13px] leading-5 text-zinc-600',
+        )}
+      >
+        {value || '--'}
+      </div>
     </div>
+  )
+}
+
+function BasicInfoCard({
+  item,
+  internalURL,
+  onErrorMessage,
+}: {
+  item: AgentListItem
+  internalURL: string
+  onErrorMessage?: (message: string) => void
+}) {
+  return (
+    <section className="workbench-card flex h-full flex-col overflow-hidden rounded-[12px] p-0">
+      <div className="flex flex-1 flex-col gap-4 bg-white px-6 pb-5 pt-6">
+        <div className="flex items-center gap-2">
+          <div className="text-[18px]/7 font-semibold tracking-[-0.01em] text-zinc-950">基础信息</div>
+          <div className="rounded-full border-[0.5px] border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[12px]/4 text-zinc-700">
+            {item.template.name}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-5">
+          <BasicInfoField label="显示名称" value={item.aliasName || item.name} />
+
+          <div className="grid gap-x-3 gap-y-5 min-[860px]:grid-cols-2">
+            <BasicInfoField label="实例名称" mono value={item.name} />
+            <BasicInfoField label="命名空间" mono value={item.namespace} />
+            <BasicInfoField label="工作目录" mono value={item.workingDir || '--'} />
+            <BasicInfoField label="最近同步" value={formatTime(item.updatedAt)} />
+          </div>
+
+          <div className="h-px bg-zinc-100" />
+
+          <div className="grid gap-x-3 gap-y-5 min-[860px]:grid-cols-2">
+            <BasicInfoField label="模型名称" value={item.model || '--'} />
+            <BasicInfoField
+              label="模型渠道"
+              value={formatModelProviderLabel(item.modelProvider)}
+            />
+            <div className="min-[860px]:col-span-2">
+              <BasicInfoField label="模型地址" value={item.modelBaseURL || '--'} />
+            </div>
+          </div>
+
+          <div className="h-px bg-zinc-100" />
+
+          <div className="flex flex-col gap-1">
+            <div className="text-[14px]/none text-zinc-500">集群内服务地址</div>
+            <div className="flex items-center gap-1">
+              <div className="min-w-0 flex-1 break-all text-[14px]/5 text-zinc-900">
+                {internalURL}
+              </div>
+              <button
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700"
+                onClick={() => copyText(internalURL, onErrorMessage)}
+                title="复制服务地址"
+                type="button"
+              >
+                <Copy className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-zinc-100 bg-white px-6 py-3">
+        <div className="flex flex-wrap items-center gap-3 text-[14px]/5">
+          <span className="text-zinc-900">密钥来源:</span>
+          <span className="text-zinc-600">{formatKeySourceLabel(item.keySource)}</span>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -113,17 +196,17 @@ function StatusSummary({ item }: { item: AgentListItem }) {
     if (item.chatAvailable && item.terminalAvailable) return '对话 + 终端'
     if (item.chatAvailable) return '对话'
     if (item.terminalAvailable) return '终端'
-    return '待就绪'
+    return '初始化阶段'
   })()
 
   const phaseLabel = item.bootstrapPhase || (item.ready ? 'ready' : 'initializing')
-  const statusHeadline = item.ready ? '实例已就绪' : '实例初始化中'
+  const statusHeadline = item.ready ? '实例已完成初始化' : '实例正在初始化'
   const summary =
     item.bootstrapMessage ||
-    (item.ready ? '可直接使用。' : '请稍候。')
+    (item.ready ? '当前实例已经就绪，可以直接开始使用。' : '实例还在准备中，请稍后刷新查看。')
 
   return (
-    <div className="rounded-xl border-[0.5px] border-zinc-200 bg-white px-3.5 py-3">
+    <div className="flex flex-col gap-5">
       <div className="flex items-start justify-between gap-2.5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -140,23 +223,15 @@ function StatusSummary({ item }: { item: AgentListItem }) {
         </span>
       </div>
 
-      <div className="mt-3 grid gap-2 min-[860px]:grid-cols-3">
-        <div className="rounded-lg border-[0.5px] border-zinc-200 bg-white px-3 py-2">
-          <div className="text-[11px]/4 text-zinc-500">运行状态</div>
-          <div className="mt-1 text-[13px]/5 font-semibold text-zinc-950">{phaseLabel}</div>
-        </div>
-        <div className="rounded-lg border-[0.5px] border-zinc-200 bg-white px-3 py-2">
-          <div className="text-[11px]/4 text-zinc-500">能力入口</div>
-          <div className="mt-1 text-[13px]/5 font-semibold text-zinc-950">{workspaceEntry}</div>
-        </div>
-        <div className="rounded-lg border-[0.5px] border-zinc-200 bg-white px-3 py-2">
-          <div className="text-[11px]/4 text-zinc-500">最近同步</div>
-          <div className="mt-1 text-[13px]/5 font-semibold text-zinc-950">{formatTime(item.updatedAt)}</div>
-        </div>
+      <div className="grid gap-x-3 gap-y-5 min-[860px]:grid-cols-3">
+        <BasicInfoField label="运行状态" value={phaseLabel} />
+        <BasicInfoField label="能力入口" value={workspaceEntry} />
+        <BasicInfoField label="最近同步" value={formatTime(item.updatedAt)} />
       </div>
 
-      <div className="mt-2 rounded-lg border-[0.5px] border-zinc-200 bg-zinc-50 px-3 py-2 text-[12px]/5 text-zinc-700">
-        {summary}
+      <div className="border-t border-zinc-100 pt-4">
+        <div className="text-[14px]/none text-zinc-500">说明</div>
+        <div className="mt-2 text-[14px]/5 text-zinc-600">{summary}</div>
       </div>
     </div>
   )
@@ -195,8 +270,8 @@ function decodeBase64Text(value = '') {
 function formatKeySourceLabel(value = '') {
   if (!value) return '--'
   const normalized = String(value).trim().toLowerCase()
-  if (!normalized || normalized === 'unset') return '未配置'
-  if (normalized === 'workspace-aiproxy') return '工作区 AI Proxy'
+  if (!normalized || normalized === 'unset') return '未准备'
+  if (normalized === 'workspace-aiproxy') return '由工作区提供'
   return value
 }
 
@@ -260,7 +335,7 @@ function SSHAccessModal({
 
   return (
     <Modal
-      description="复制连接信息或下载私钥。"
+      description="这里可以直接复制 SSH 连接信息或下载私钥。"
       onClose={onClose}
       open={open}
       title="SSH 连接"
@@ -339,28 +414,28 @@ function IDEConnectModal({
     {
       key: 'cursor',
       title: 'Cursor',
-      description: '使用连接 URI 打开实例。',
+      description: '用一键连接方式在 Cursor 打开当前实例。',
     },
     {
       key: 'vscode',
       title: 'VSCode',
-      description: '使用连接 URI 打开实例。',
+      description: '用一键连接方式在 VSCode 打开当前实例。',
     },
     {
       key: 'zed',
       title: 'Zed',
-      description: '通过 SSH 快捷主机名连接。',
+      description: '通过 SSH 快捷主机名在 Zed 打开当前目录。',
     },
     {
       key: 'gateway',
       title: 'Gateway',
-      description: '通过 JetBrains Gateway 连接。',
+      description: '通过 JetBrains Gateway 连接并打开项目目录。',
     },
   ]
 
   return (
     <Modal
-      description="选择 IDE 连接实例。"
+      description="选择一个 IDE，快速连接到当前实例。"
       onClose={onClose}
       open={open}
       title="IDE 连接"
@@ -368,8 +443,9 @@ function IDEConnectModal({
     >
       <div className="space-y-5">
         <div className="rounded-xl border-[0.5px] border-zinc-200 bg-zinc-50 px-4 py-3 text-[12px]/5 text-zinc-600">
-          快捷主机名 <span className="font-mono text-zinc-700">{payload.configHost}</span>，目录{' '}
+          当前快捷主机名为 <span className="font-mono text-zinc-700">{payload.configHost}</span>，工作目录为{' '}
           <span className="font-mono text-zinc-700">{payload.workingDir}</span>。
+          如果本机还没完成 SSH 配置，请先打开 SSH 详情完成配置。
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
@@ -421,7 +497,6 @@ function AccessCapabilityCard({
   actions?: ReactNode
 }) {
   const canOperate = value !== '--'
-  const isURLValue = /^https?:\/\//.test(value)
 
   const handleCopy = () => {
     if (!canOperate) return
@@ -434,36 +509,28 @@ function AccessCapabilityCard({
   }
 
   return (
-    <div className="rounded-xl border-[0.5px] border-zinc-200 bg-white p-3.5">
+    <div className="rounded-[10px] border-[0.5px] border-zinc-200 bg-zinc-50/60 px-4 py-4">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-zinc-400">{title}</div>
-          <div
-            className={cn(
-              'mt-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 font-mono text-[11px]/5 text-zinc-700',
-              isURLValue ? 'break-all' : 'break-words',
-            )}
-            title={value}
-          >
-            {value}
-          </div>
+        <div className="min-w-0">
+          <div className="text-[12px] font-medium uppercase tracking-[0.08em] text-zinc-400">{title}</div>
+          <div className="mt-2 break-all font-mono text-[12px]/5 text-zinc-700">{value}</div>
         </div>
         <ToneBadge tone={tone}>
           {tone === 'active' ? '可用' : tone === 'pending' ? '准备中' : '未开放'}
         </ToneBadge>
       </div>
 
-      <div className="mt-2 text-[11px]/5 text-zinc-500">{detail}</div>
+      <div className="mt-3 border-t border-zinc-100 pt-3 text-[12px]/5 text-zinc-500">{detail}</div>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
         <Button disabled={!canOperate} onClick={handleCopy} size="sm" type="button" variant="secondary">
           <Copy className="h-3.5 w-3.5" />
-          {isURLValue ? '复制地址' : '复制内容'}
+          复制
         </Button>
         {openable ? (
           <Button disabled={!canOperate} onClick={handleOpen} size="sm" type="button" variant="secondary">
             <ArrowUpRight className="h-3.5 w-3.5" />
-            打开链接
+            打开
           </Button>
         ) : null}
         {actions}
@@ -494,7 +561,7 @@ export function AgentDetailOverview({
     apiAccess
       ? (
         <AccessCapabilityCard
-          detail={apiAccess.reason || (apiAccess.auth ? `鉴权：${apiAccess.auth}` : '未开放 API。')}
+          detail={apiAccess.reason || (apiAccess.auth ? `鉴权方式：${apiAccess.auth}` : '当前模板未开放第三方 API 接入。')}
           key="api"
           openable
           title="API"
@@ -541,7 +608,7 @@ export function AgentDetailOverview({
               {loadingAccess === 'ide' ? '读取中...' : '连接'}
             </Button>
           )}
-          detail={ideAccess.reason || (ideAccess.modes?.length ? `支持 ${ideAccess.modes.join(' / ')}` : '未开放 IDE。')}
+          detail={ideAccess.reason || (ideAccess.modes?.length ? `支持 ${ideAccess.modes.join(' / ')}` : '当前模板未开放 IDE 接入。')}
           key="ide"
           title="IDE"
           tone={resolveTone(ideAccess)}
@@ -552,7 +619,7 @@ export function AgentDetailOverview({
     webUIAccess
       ? (
         <AccessCapabilityCard
-          detail={webUIAccess.reason || '未提供 Web UI。'}
+          detail={webUIAccess.reason || '当前模板未提供独立 Web UI。'}
           key="web-ui"
           openable
           title="Web UI"
@@ -612,52 +679,14 @@ export function AgentDetailOverview({
 
   return (
     <>
-      <div className="grid h-full min-h-0 w-full min-w-0 gap-2.5 overflow-y-auto pr-1 min-[1240px]:grid-cols-[minmax(390px,0.88fr)_minmax(0,1.12fr)]">
-        <Panel
-          extra={(
-            <div className="rounded-full border-[0.5px] border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-[10px]/4 text-zinc-700">
-              {item.template.name}
-            </div>
-          )}
-          title="基础信息"
-        >
-          <div className="flex flex-col gap-3.5">
-            <BasicInfoRow items={[{ label: '显示名称', value: item.aliasName || item.name }]} />
-            <BasicInfoRow
-              items={[
-                { label: '实例名称', value: item.name, mono: true },
-                { label: '命名空间', value: item.namespace, mono: true },
-              ]}
-            />
-            <BasicInfoRow
-              items={[
-                { label: '工作目录', value: item.workingDir || '--', mono: true },
-                { label: '最近同步', value: formatTime(item.updatedAt) },
-              ]}
-            />
-            <BasicInfoRow items={[{ label: '集群内服务地址', value: internalURL, mono: true }]} />
-            <div className="h-px bg-zinc-100" />
+      <div className="grid w-full min-w-0 gap-2.5 pr-1 pb-1 xl:grid-cols-[minmax(390px,0.88fr)_minmax(0,1.12fr)]">
+        <BasicInfoCard internalURL={internalURL} item={item} onErrorMessage={onErrorMessage} />
 
-            <div className="flex flex-col gap-3.5">
-              <BasicInfoRow
-                items={[
-                  { label: '模型名称', value: item.model || '--' },
-                  {
-                    label: '模型渠道',
-                    value: formatModelProviderLabel(item.modelProvider),
-                  },
-                ]}
-              />
-              <BasicInfoRow items={[{ label: '模型地址', value: item.modelBaseURL || '--', mono: true }]} />
-              <BasicInfoRow items={[{ label: '密钥来源', value: formatKeySourceLabel(item.keySource) }]} />
-            </div>
-          </div>
-        </Panel>
-
-        <div className="flex min-h-0 min-w-0 flex-col gap-2.5 px-0.5">
+        <div className="flex min-w-0 flex-col gap-2.5 px-0.5">
           <Panel
+            description="查看当前实例的初始化阶段、可用能力和最近同步时间。"
             extra={(
-              <span className="text-[11px]/5 text-zinc-400">
+              <span className="shrink-0 text-[12px]/5 text-zinc-400">
                 更新于 {formatTime(item.updatedAt)}
               </span>
             )}
@@ -666,12 +695,15 @@ export function AgentDetailOverview({
             <StatusSummary item={item} />
           </Panel>
 
-          <Panel title="连接方式">
+          <Panel
+            description="展示当前 Agent 实际开放的连接入口，例如 API、SSH、IDE 或 Web UI。"
+            title="连接方式"
+          >
             {accessCards.length > 0 ? (
-              <div className="grid gap-2.5 min-[780px]:grid-cols-2">{accessCards}</div>
+              <div className="grid gap-2.5 sm:grid-cols-2">{accessCards}</div>
             ) : (
               <div className="rounded-xl border-[0.5px] border-zinc-200 bg-zinc-50 px-3.5 py-5 text-[12px]/5 text-zinc-500">
-                当前模板没有可用入口。
+                当前模板暂时没有可用的外部连接入口。
               </div>
             )}
           </Panel>

@@ -76,16 +76,10 @@ describe('AgentConfigForm', () => {
       />,
     )
 
-    expect(
-      screen.getByRole('option', { name: 'GPT-5.4 Mini · OpenAI' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('option', { name: 'GLM-4.6 · GLM' }),
-    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'GPT-5.4 Mini · OpenAI' }))
+    expect(screen.getByText('GLM-4.6 · GLM')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByRole('combobox'), {
-      target: { value: 'glm-4.6' },
-    })
+    fireEvent.click(screen.getByText('GLM-4.6 · GLM'))
 
     expect(settingCalls).toContainEqual(['model', 'glm-4.6'])
     expect(settingCalls).toContainEqual(['provider', 'custom:aiproxy-chat'])
@@ -118,11 +112,8 @@ describe('AgentConfigForm', () => {
       />,
     )
 
-    expect(
-      screen.getByRole('option', { name: 'GLM-4.6 · GLM' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('option', { name: 'GPT-5.4 Mini · OpenAI' }),
-    ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '请选择模型' }))
+    expect(screen.getByText('GLM-4.6 · GLM')).toBeInTheDocument()
+    expect(screen.queryByText('GPT-5.4 Mini · OpenAI')).not.toBeInTheDocument()
   })
 })

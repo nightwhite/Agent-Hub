@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "../../../../components/ui/Button";
-import { StatusBadge } from "../../../../components/ui/StatusBadge";
 import type { AgentListItem } from "../../../../domains/agents/types";
 
 interface AgentDetailHeaderProps {
@@ -70,36 +69,42 @@ export function AgentDetailHeader({
             icon: Settings,
             onClick: onOpenConfig,
             disabled: false,
-            title: "打开设置",
+        title: "打开设置",
           };
 
   return (
-    <header className="flex min-h-[64px] w-full items-center justify-between gap-2.5 py-2">
-      <div className="flex min-w-0 items-center gap-2">
+    <header className="flex w-full items-center justify-between gap-5 bg-[#fafafa] py-8">
+      <div className="flex min-w-0 flex-col gap-3">
         <button
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+          className="flex w-fit cursor-pointer items-center gap-2 text-zinc-500 transition hover:text-zinc-950"
           onClick={onBack}
           title="返回 Agent 列表"
           type="button"
         >
-          <ArrowLeft className="h-4.5 w-4.5" />
+          <ArrowLeft className="h-4 w-4" />
+          <span className="text-sm font-medium">返回 Agent 列表</span>
         </button>
-
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="truncate text-[1.15rem]/7 font-semibold tracking-[-0.025em] text-zinc-950">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border-[0.5px] border-zinc-200 bg-zinc-50/90">
+            <img
+              alt={`${item.template.name} logo`}
+              className="h-9 w-9 object-cover"
+              src={item.template.logo}
+            />
+          </div>
+          <div className="truncate text-[24px]/8 font-semibold tracking-[-0.02em] text-[#0a0a0a]">
             {item.aliasName || item.name}
           </div>
-          <StatusBadge status={item.status} />
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
         {extraActions}
 
         <Button
-          className="w-9 bg-white px-0 text-zinc-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+          className="h-10 w-10 rounded-[8px] bg-white px-0 text-zinc-500 shadow-none hover:border-red-200 hover:bg-red-50 hover:text-red-600"
           onClick={onDelete}
-          size="sm"
+          size="md"
           title="删除"
           type="button"
           variant="secondary"
@@ -108,10 +113,10 @@ export function AgentDetailHeader({
         </Button>
 
         <Button
-          className="w-9 bg-white px-0 text-zinc-500 hover:text-zinc-900"
+          className="h-10 w-10 rounded-[8px] bg-white px-0 text-zinc-500 shadow-none hover:text-zinc-900"
           disabled={!item.terminalAvailable}
           onClick={onOpenTerminalWindow}
-          size="sm"
+          size="md"
           title={
             item.terminalAvailable
               ? "打开终端窗口"
@@ -123,12 +128,12 @@ export function AgentDetailHeader({
           <Terminal className="h-4 w-4" />
         </Button>
 
-        <div className="flex items-center rounded-xl border-[0.5px] border-zinc-200 bg-white p-0.5 shadow-[0_1px_2px_rgba(24,24,27,0.04)]">
+        <div className="flex items-center overflow-hidden rounded-[10px] border-[0.5px] border-zinc-200 bg-white shadow-none">
           <Button
-            className="rounded-[10px] border-0 shadow-none"
+            className="h-10 min-w-[88px] rounded-none border-0 px-4 text-[14px] leading-5 shadow-none"
             disabled={toggleDisabled}
             onClick={onToggleState}
-            size="sm"
+            size="md"
             title={toggleTitle}
             type="button"
             variant="secondary"
@@ -141,9 +146,9 @@ export function AgentDetailHeader({
             {toggleLabel}
           </Button>
           <Button
-            className="rounded-[10px] border-0 shadow-none"
+            className="h-10 min-w-[88px] rounded-none border-0 border-l border-zinc-200 px-4 text-[14px] leading-5 shadow-none"
             onClick={onOpenConfig}
-            size="sm"
+            size="md"
             title="配置"
             type="button"
             variant="secondary"
@@ -154,10 +159,10 @@ export function AgentDetailHeader({
         </div>
 
         <Button
-          className="min-w-[74px] bg-zinc-900 text-white shadow-[0_1px_2px_rgba(24,24,27,0.14)] hover:bg-zinc-800"
+          className="h-10 min-w-[88px] rounded-[8px] bg-[#18181b] px-4 text-[14px] leading-5 font-medium text-white shadow-none hover:bg-black"
           disabled={primaryAction.disabled}
           onClick={primaryAction.onClick}
-          size="sm"
+          size="md"
           title={primaryAction.title}
           type="button"
           variant="primary"

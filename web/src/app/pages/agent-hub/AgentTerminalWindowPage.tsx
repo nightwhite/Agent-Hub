@@ -169,7 +169,7 @@ export function AgentTerminalWindowPage() {
             <span className="truncate text-sm font-semibold">{displayName}</span>
           </div>
           <div className="mt-1 truncate text-xs text-zinc-500">
-            {activeItem?.name || activeAgentName || '等待实例'}
+            {activeItem?.name || activeAgentName || '等待终端目标'}
           </div>
         </div>
         {loading ? (

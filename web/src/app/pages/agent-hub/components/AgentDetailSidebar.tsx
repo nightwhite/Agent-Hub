@@ -43,17 +43,20 @@ export function AgentDetailSidebar({
     }));
 
   return (
-    <aside className="flex h-full min-h-0 w-[56px] shrink-0 flex-col rounded-xl border-[0.5px] border-zinc-200 bg-white p-1.5 shadow-[0_1px_2px_rgba(24,24,27,0.04)] min-[1200px]:w-[78px]">
-      <div className="flex min-h-0 flex-1 flex-col items-start gap-1 overflow-y-auto pr-0.5">
+    <aside
+      className={cn(
+        'flex w-full shrink-0 self-stretch flex-row rounded-[12px] border-[0.5px] border-zinc-200 bg-white p-2 shadow-[0_1px_2px_rgba(0,0,0,0.05)] min-[860px]:h-full min-[860px]:w-[76px] min-[860px]:flex-col',
+      )}
+    >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-row items-start gap-2 overflow-x-auto overflow-y-hidden min-[860px]:flex-col min-[860px]:overflow-x-hidden min-[860px]:overflow-y-auto">
         {tabs.map((tab) => {
           const Icon = tab.icon;
 
           return (
             <button
               className={cn(
-                'flex w-full cursor-pointer flex-col items-center gap-1 rounded-lg p-1.5 text-center text-[10px] font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 min-[1200px]:p-2 min-[1200px]:text-[11px]',
-                currentTab === tab.value &&
-                  'bg-zinc-100 text-zinc-900 shadow-[inset_0_0_0_0.5px_rgba(228,228,231,0.9)]',
+                'flex h-[56px] w-[64px] shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[8px] p-2 text-center text-[8px] font-medium tracking-[0.2px] text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 min-[860px]:h-[60px] min-[860px]:w-[60px]',
+                currentTab === tab.value && 'bg-zinc-100 text-zinc-900',
                 !tab.enabled &&
                   'cursor-not-allowed opacity-45 hover:bg-transparent hover:text-zinc-500',
               )}
@@ -65,8 +68,8 @@ export function AgentDetailSidebar({
               title={tab.enabled ? tab.label : tab.reason}
               type="button"
             >
-              <Icon size={18} strokeWidth={1.35} />
-              <span>{tab.label}</span>
+              <Icon className="h-6 w-6 shrink-0" strokeWidth={1.6} />
+              <span className="leading-[16px]">{tab.label}</span>
             </button>
           )
         })}

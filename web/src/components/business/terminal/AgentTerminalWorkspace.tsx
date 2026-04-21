@@ -230,8 +230,10 @@ export function AgentTerminalWorkspace({
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500">
           <TerminalIcon size={22} />
         </div>
-        <div className="mt-4 text-base font-medium text-slate-950">终端</div>
-        <p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">连接后可直接进入容器环境。</p>
+        <div className="mt-4 text-base font-medium text-slate-950">终端工作台</div>
+        <p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">
+          打开终端后会直接进入 Agent 容器环境，用于检查进程、日志、Hermes CLI 和安装状态。
+        </p>
         {onOpen ? (
           <div className="mt-4">
             <Button onClick={onOpen} variant="secondary">
@@ -245,7 +247,7 @@ export function AgentTerminalWorkspace({
   }
 
   return (
-    <div className="flex h-full min-h-[400px] flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div className="flex h-full min-h-[460px] flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3 text-xs text-slate-500">
         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
           状态: {statusLabelMap[session.status]}
@@ -299,7 +301,7 @@ export function AgentTerminalWorkspace({
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/28">
               <div className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/90 px-4 py-2 text-sm text-white shadow-lg backdrop-blur">
                 <LoaderCircle className="animate-spin" size={16} />
-                {session.status === 'reconnecting' ? '恢复连接中...' : '连接中...'}
+                {session.status === 'reconnecting' ? '正在恢复终端连接...' : '正在连接终端...'}
               </div>
             </div>
           ) : null}

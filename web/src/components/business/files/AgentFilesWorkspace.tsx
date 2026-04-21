@@ -19,6 +19,7 @@ import type { ChangeEvent, DragEvent } from 'react'
 import type { AgentFileItem, FilesSessionState } from '../../../domains/agents/types'
 import { cn } from '../../../lib/format'
 import { Button } from '../../ui/Button'
+import { Card } from '../../ui/Card'
 import { Input } from '../../ui/Input'
 import { SearchField } from '../../ui/SearchField'
 import { AgentFileCodeEditor } from './AgentFileCodeEditor'
@@ -73,11 +74,11 @@ const getEntryKindLabel = (item: AgentFileItem) => {
 }
 
 const getEntryHelperText = (item: AgentFileItem) => {
-  if (item.type === 'dir') return '目录'
-  if (isMarkdownLikeFile(item.name)) return 'Markdown'
-  if (isTextPreviewableFile(item.name)) return '文本'
-  if (isImagePreviewableFile(item.name) || isBrowserPreviewableFile(item.name)) return '可预览'
-  return '仅下载'
+  if (item.type === 'dir') return '目录，支持进入与预取'
+  if (isMarkdownLikeFile(item.name)) return '支持文档预览与分栏编辑'
+  if (isTextPreviewableFile(item.name)) return '支持预览、编辑与保存'
+  if (isImagePreviewableFile(item.name) || isBrowserPreviewableFile(item.name)) return '支持内嵌预览'
+  return '支持下载，不支持内嵌编辑'
 }
 
 export function AgentFilesWorkspace({
@@ -112,13 +113,13 @@ export function AgentFilesWorkspace({
       : session?.currentPath || ''
 
   const handleCreateFile = () => {
-    const name = window.prompt('新文件名（例如 README.md）')
+    const name = window.prompt('输入新文件名，例如 `README.md`')
     if (!name?.trim()) return
     onCreateFile(name)
   }
 
   const handleCreateDirectory = () => {
-    const name = window.prompt('新目录名')
+    const name = window.prompt('输入新目录名')
     if (!name?.trim()) return
     onCreateDirectory(name)
   }
@@ -170,9 +171,9 @@ export function AgentFilesWorkspace({
     const others = visibleItems.filter((item) => item.type === 'other')
 
     return [
-      { key: 'directories', label: `目录 · ${directories.length}`, items: directories, emptyText: '暂无目录。' },
-      { key: 'files', label: `文件 · ${files.length}`, items: files, emptyText: '暂无文件。' },
-      { key: 'others', label: `其他 · ${others.length}`, items: others, emptyText: '暂无其他对象。' },
+      { key: 'directories', label: `目录 · ${directories.length}`, items: directories, emptyText: '当前没有子目录。' },
+      { key: 'files', label: `文件 · ${files.length}`, items: files, emptyText: '当前没有文件。' },
+      { key: 'others', label: `其他 · ${others.length}`, items: others, emptyText: '当前没有其他类型对象。' },
     ]
   }, [visibleItems])
 
@@ -200,28 +201,30 @@ export function AgentFilesWorkspace({
 
   if (!session) {
     return (
-      <div className="workbench-empty flex h-full min-h-[320px] flex-col items-center justify-center px-6 py-10 text-center">
+      <Card className="flex h-full min-h-[320px] flex-col items-center justify-center rounded-[16px] border-zinc-200 bg-white px-6 py-10 text-center shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-500">
           <Folder size={22} />
         </div>
-        <div className="mt-4 text-base font-medium text-zinc-950">文件</div>
-        <p className="mt-2 max-w-lg text-sm leading-6 text-zinc-500">连接后可浏览、编辑与上传文件。</p>
+        <div className="mt-4 text-[15px] font-semibold text-zinc-950">文件工作台</div>
+        <p className="mt-2 max-w-lg text-sm leading-6 text-zinc-500">
+          连接后可直接浏览、编辑、上传和下载文件。
+        </p>
         {onOpen ? (
           <div className="mt-4">
             <Button onClick={onOpen} variant="secondary">
               <Folder size={16} />
-              打开文件
+              打开文件工作台
             </Button>
           </div>
         ) : null}
-      </div>
+      </Card>
     )
   }
 
   return (
     <div
       className={cn(
-        'workbench-card-strong flex h-full min-h-0 flex-col overflow-hidden',
+        'workbench-card-strong flex min-h-[480px] flex-col overflow-hidden rounded-[16px] border-zinc-200 bg-white xl:h-full xl:min-h-0',
         dropActive ? 'ring-2 ring-blue-500/20 ring-offset-0' : '',
       )}
       onDragEnter={(event) => {
@@ -239,14 +242,18 @@ export function AgentFilesWorkspace({
       }}
       onDrop={handleDrop}
     >
-      <div className="border-b border-zinc-100 bg-[linear-gradient(180deg,#ffffff_0%,#fafafa_100%)] px-3.5 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-2.5">
+      <div className="border-b border-zinc-100 bg-white px-6 pt-6 pb-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
-            <div className="text-[13px]/6 font-semibold tracking-[-0.01em] text-zinc-950">文件</div>
-            <div className="mt-1 text-[11px]/4 text-zinc-500">目录双击进入，文件双击预览。</div>
+            <div className="text-[18px]/7 font-semibold tracking-[-0.01em] text-zinc-950">
+              文件工作台
+            </div>
+            <div className="mt-2 text-sm leading-6 text-zinc-500">
+              浏览、编辑并管理当前目录文件。
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 xl:justify-end">
             <Button disabled={!canGoUp} onClick={onOpenParent} size="sm" type="button" variant="ghost">
               <ChevronUp size={16} />
               上级
@@ -255,7 +262,7 @@ export function AgentFilesWorkspace({
               <RefreshCw size={16} />
               刷新
             </Button>
-            <Button onClick={() => uploadInputRef.current?.click()} size="sm" type="button" variant="secondary">
+            <Button onClick={() => uploadInputRef.current?.click()} size="sm" type="button" variant="ghost">
               <Upload size={16} />
               上传
             </Button>
@@ -267,10 +274,52 @@ export function AgentFilesWorkspace({
               <FolderPlus size={16} />
               目录
             </Button>
-            <div className="ml-1 inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[10px]/4 text-zinc-500">
+            <div className="ml-1 inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-0.5 text-[10px]/4 text-zinc-500">
               <Info size={12} />
-              <span>可拖拽上传</span>
+              <span>支持拖拽上传</span>
             </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-1 items-center gap-2 lg:max-w-[520px]">
+            <Input
+              className="h-10 rounded-[10px] border-zinc-200 bg-white px-3.5 text-[14px] leading-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+              onChange={(event) =>
+                setDirectoryDraft({
+                  basePath: session.currentPath,
+                  value: event.target.value,
+                })
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleJumpToPath()
+                }
+              }}
+              placeholder="输入目录，例如 /workspace/docs"
+              size="md"
+              value={directoryInput}
+            />
+            <Button
+              className="h-10 rounded-[10px] px-4 text-[14px] leading-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+              onClick={handleJumpToPath}
+              size="md"
+              type="button"
+              variant="secondary"
+            >
+              打开
+            </Button>
+          </div>
+
+          <div className="min-w-0 lg:w-[320px] lg:flex-none">
+            <SearchField
+              className="[&_input]:h-10 [&_input]:rounded-[10px] [&_input]:border-zinc-200 [&_input]:bg-white [&_input]:px-3.5 [&_input]:pl-9 [&_input]:text-[14px] [&_input]:leading-5 [&_input]:shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+              onChange={(event) => setSearchKeyword(event.target.value)}
+              placeholder="搜索当前目录中的文件名或路径"
+              size="md"
+              value={searchKeyword}
+            />
           </div>
         </div>
 
@@ -280,51 +329,16 @@ export function AgentFilesWorkspace({
           </div>
         ) : null}
 
-        <div className="mt-2.5 grid gap-2.5 min-[1080px]:grid-cols-[minmax(0,1.12fr)_minmax(280px,0.88fr)]">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <Input
-                onChange={(event) =>
-                  setDirectoryDraft({
-                    basePath: session.currentPath,
-                    value: event.target.value,
-                  })
-                }
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    handleJumpToPath()
-                  }
-                }}
-                placeholder="输入路径并回车"
-                size="md"
-                value={directoryInput}
-              />
-              <Button onClick={handleJumpToPath} size="md" type="button" variant="secondary">
-                打开
-              </Button>
-            </div>
-          </div>
-
-          <div className="min-w-0">
-            <SearchField
-              onChange={(event) => setSearchKeyword(event.target.value)}
-              placeholder="搜索文件或路径"
-              size="md"
-              value={searchKeyword}
-            />
-          </div>
-        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2.5">
-        <div className="grid h-full min-h-[350px] gap-2.5 md:min-h-[390px] lg:min-h-[420px] min-[1320px]:grid-cols-[minmax(300px,0.95fr)_minmax(0,1.45fr)]">
-          <section className="workbench-card flex min-h-0 flex-col overflow-hidden">
-            <div className="border-b border-zinc-100 px-3.5 py-2.5">
+      <div className="px-6 pb-6 pt-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+        <div className="grid min-h-[320px] gap-4 md:min-h-[360px] xl:h-full xl:min-h-[420px] xl:grid-cols-[minmax(300px,0.95fr)_minmax(0,1.45fr)]">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-[14px] border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+            <div className="border-b border-zinc-100 px-4 py-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[12px]/5 font-semibold text-zinc-950">目录与文件</div>
-                  <div className="mt-1 text-[11px]/4 text-zinc-500">目录双击进入，文件双击预览。</div>
+                  <div className="text-[12px]/5 font-semibold text-zinc-950">文件列表</div>
+                  <div className="mt-1 text-[11px]/4 text-zinc-500">单击选中，目录双击进入，文件双击预览。</div>
                 </div>
                 <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[10px]/4 font-medium text-zinc-500">
                   {visibleItems.length} 项
@@ -332,14 +346,14 @@ export function AgentFilesWorkspace({
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-2.5">
+            <div className="p-3 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
               {session.browsing ? (
                 <div className="flex h-full min-h-[180px] items-center justify-center rounded-[14px] border border-dashed border-zinc-200 bg-zinc-50 text-[12px] text-zinc-500 md:min-h-[200px]">
-                  读取目录中...
+                  正在读取目录内容...
                 </div>
               ) : !visibleItems.length ? (
                 <div className="flex h-full min-h-[180px] items-center justify-center rounded-[14px] border border-dashed border-zinc-200 bg-zinc-50 px-5 text-center text-[12px] text-zinc-400 md:min-h-[200px]">
-                  当前目录没有可显示内容。
+                  当前目录没有匹配内容。
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -384,11 +398,11 @@ export function AgentFilesWorkspace({
                                         <div className="truncate text-[12px]/5 font-medium text-zinc-950">{item.name}</div>
                                         <div className="flex items-center gap-1.5">
                                           {opened ? (
-                                            <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px]/4 font-medium text-white">
+                                            <span className="inline-flex h-7 items-center rounded-[6px] bg-zinc-900 px-2.5 text-[10px]/4 font-medium text-white">
                                               已打开
                                             </span>
                                           ) : null}
-                                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px]/4 font-medium text-zinc-500">
+                                          <span className="inline-flex h-7 items-center rounded-[6px] bg-zinc-100 px-2.5 text-[10px]/4 font-medium text-zinc-500">
                                             {itemLabel}
                                           </span>
                                         </div>
@@ -403,7 +417,7 @@ export function AgentFilesWorkspace({
                                     </div>
                                   </button>
 
-                                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                                  <div className="flex shrink-0 flex-col items-end gap-2.5">
                                     <Button
                                       className="px-2"
                                       onClick={() => onOpenEntry(item)}
@@ -429,7 +443,7 @@ export function AgentFilesWorkspace({
                                         onClick={() => onEditEntry(item)}
                                         size="xs"
                                         type="button"
-                                        variant="ghost"
+                                        variant="secondary"
                                       >
                                         <PencilLine size={14} />
                                         编辑
@@ -453,14 +467,14 @@ export function AgentFilesWorkspace({
             </div>
           </section>
 
-          <section className="workbench-card flex min-h-0 flex-col overflow-hidden">
-            <div className="flex flex-wrap items-start justify-between gap-2.5 border-b border-zinc-100 px-3.5 py-2.5">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-[14px] border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+            <div className="flex flex-wrap items-start justify-between gap-2.5 border-b border-zinc-100 px-4 py-4">
               <div className="min-w-0">
                 <div className="truncate text-[13px]/6 font-semibold text-zinc-950">
                   {selectedFileName || '预览与编辑'}
                 </div>
                 <div className="mt-1 truncate font-mono text-[11px]/4 text-zinc-400">
-                  {focusedItem?.path || '选择对象后显示路径'}
+                  {focusedItem?.path || '从左侧列表选择一个对象开始工作'}
                 </div>
                 {selectionDetached ? (
                   <div className="mt-1 text-[11px]/4 text-zinc-500">
@@ -505,10 +519,10 @@ export function AgentFilesWorkspace({
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 bg-zinc-50 p-2.5">
+            <div className="min-h-0 flex-1 bg-zinc-50 p-3">
               {!selectedItem ? (
                 <div className="flex h-full min-h-[190px] items-center justify-center rounded-[18px] border border-dashed border-zinc-300 bg-white px-6 text-center text-[12px] text-zinc-400 md:min-h-[220px] lg:min-h-[240px]">
-                  请选择目录或文件。
+                  从左侧文件列表选择一个对象开始工作。目录双击进入，文件双击预览。
                 </div>
               ) : selectedItem.type === 'dir' && !openedItem ? (
                 <div className="flex h-full min-h-[190px] flex-col items-center justify-center rounded-[18px] border border-dashed border-zinc-300 bg-white px-6 text-center md:min-h-[220px] lg:min-h-[240px]">
@@ -516,7 +530,9 @@ export function AgentFilesWorkspace({
                     <Folder size={22} />
                   </div>
                   <div className="mt-3 text-[14px] font-medium text-zinc-950">{selectedItem.name}</div>
-                  <p className="mt-2 max-w-md text-[12px]/5 text-zinc-500">双击目录可进入。</p>
+                  <p className="mt-2 max-w-md text-[12px]/5 text-zinc-500">
+                    当前选择的是目录。你可以继续进入目录，或者在左侧继续选中文件。
+                  </p>
                   <div className="mt-3">
                     <Button onClick={() => onOpenEntry(selectedItem)} size="sm" type="button" variant="secondary">
                       <ChevronRight size={16} />
@@ -526,11 +542,11 @@ export function AgentFilesWorkspace({
                 </div>
               ) : session.previewing || session.reading ? (
                 <div className="flex h-full min-h-[190px] items-center justify-center rounded-[18px] border border-zinc-200 bg-white text-[12px] text-zinc-500 md:min-h-[220px] lg:min-h-[240px]">
-                  {session.detailMode === 'edit' ? '载入编辑内容...' : '载入预览内容...'}
+                  {session.detailMode === 'edit' ? '正在加载可编辑内容...' : '正在加载预览内容...'}
                 </div>
               ) : !openedItem ? (
                 <div className="flex h-full min-h-[190px] items-center justify-center rounded-[18px] border border-dashed border-zinc-300 bg-white px-6 text-center text-[12px] text-zinc-400 md:min-h-[220px] lg:min-h-[240px]">
-                  当前对象尚未打开。
+                  当前对象还没有打开。请使用上方或中栏动作进入目录、打开预览或进入编辑。
                 </div>
               ) : openedItem.type === 'dir' ? (
                 <div className="flex h-full min-h-[190px] flex-col items-center justify-center rounded-[18px] border border-dashed border-zinc-300 bg-white px-6 text-center md:min-h-[220px] lg:min-h-[240px]">
@@ -538,7 +554,9 @@ export function AgentFilesWorkspace({
                     <Folder size={22} />
                   </div>
                   <div className="mt-3 text-[14px] font-medium text-zinc-950">{openedItem.name}</div>
-                  <p className="mt-2 max-w-md text-[12px]/5 text-zinc-500">目录已打开，请继续选择文件。</p>
+                  <p className="mt-2 max-w-md text-[12px]/5 text-zinc-500">
+                    当前打开的是目录。目录会切换左侧列表，你可以继续选择其中的文件。
+                  </p>
                 </div>
               ) : session.detailMode === 'edit' && openedCanEdit ? (
                 markdownActive ? (
@@ -578,19 +596,19 @@ export function AgentFilesWorkspace({
                   </div>
                 ) : (
                   <div className="flex h-full min-h-[190px] items-center justify-center rounded-[18px] border border-dashed border-zinc-300 bg-white px-6 text-center text-[12px] text-zinc-400 md:min-h-[220px] lg:min-h-[240px]">
-                    当前文件不支持内嵌预览。
+                    当前文件暂不支持内嵌预览，请直接下载查看。
                   </div>
                 )
               ) : (
                 <div className="flex h-full min-h-[190px] items-center justify-center rounded-[18px] border border-dashed border-zinc-300 bg-white px-6 text-center text-[12px] text-zinc-400 md:min-h-[220px] lg:min-h-[240px]">
-                  当前文件不支持内嵌预览。
+                  当前文件暂不支持内嵌预览，请直接下载查看。
                 </div>
               )}
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 bg-white px-3.5 py-2.5">
               <div className="min-w-0 text-[11px]/5 text-zinc-500">
-                {session.activity || '支持目录浏览、文本编辑与 Markdown 预览。'}
+                {session.activity || '支持目录切换、拖拽上传、通用文本编辑与 Markdown 实时预览。'}
               </div>
               <div className="flex items-center gap-2 text-[10px]/4 text-zinc-400">
                 {session.uploading ? <span>上传中</span> : null}

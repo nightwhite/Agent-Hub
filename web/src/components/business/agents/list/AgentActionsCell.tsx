@@ -9,12 +9,16 @@ import {
   Terminal,
   Trash2,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { getAccessItem, getActionItem } from '../../../../domains/agents/mappers'
 import type { AgentListItem } from '../../../../domains/agents/types'
-import { cn } from '../../../../lib/format'
 import { Button } from '../../../ui/Button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../../../ui/DropdownMenu'
 
 interface AgentActionsCellProps {
   item: AgentListItem
@@ -39,6 +43,11 @@ export function AgentActionsCell({
   onDelete,
   onWebUI,
 }: AgentActionsCellProps) {
+  const terminalButtonClassName =
+    'h-9 min-w-[72px] shrink-0 rounded-[8px] border-zinc-200 bg-white px-3 text-[13px] font-semibold text-zinc-700 shadow-none hover:bg-zinc-50'
+  const detailButtonClassName =
+    'h-9 min-w-[72px] shrink-0 rounded-[8px] border-transparent px-3 text-[13px] font-semibold shadow-[0_1px_2px_rgba(24,24,27,0.1)]'
+
   const chatAction = getActionItem(item, 'open-chat')
   const terminalAction = getActionItem(item, 'open-terminal')
   const filesAction = getActionItem(item, 'open-files')
@@ -54,82 +63,6 @@ export function AgentActionsCell({
   const canWebUI = Boolean(webUIAccess?.enabled)
   const canToggleState = Boolean(runAction?.enabled || pauseAction?.enabled)
   const toggleTitle = pauseAction?.enabled ? pauseAction.label : runAction?.enabled ? runAction.label : '当前状态不可切换'
-
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement | null>(null)
-  const triggerRef = useRef<HTMLDivElement | null>(null)
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, transformOrigin: 'top right' })
-
-  const updateMenuPosition = () => {
-    const trigger = triggerRef.current
-    if (!trigger) return
-
-    const triggerRect = trigger.getBoundingClientRect()
-    const menuWidth = menuRef.current?.offsetWidth || 188
-    const menuHeight = menuRef.current?.offsetHeight || 240
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-    const edgePadding = 12
-    const gap = 8
-
-    const left = Math.min(
-      Math.max(edgePadding, triggerRect.right - menuWidth),
-      viewportWidth - menuWidth - edgePadding,
-    )
-
-    const canOpenBelow = triggerRect.bottom + gap + menuHeight <= viewportHeight - edgePadding
-    const top = canOpenBelow
-      ? triggerRect.bottom + gap
-      : Math.max(edgePadding, triggerRect.top - menuHeight - gap)
-
-    setMenuPosition({
-      top,
-      left,
-      transformOrigin: canOpenBelow ? 'top right' : 'bottom right',
-    })
-  }
-
-  useEffect(() => {
-    if (!menuOpen) return
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (!menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) {
-        setMenuOpen(false)
-      }
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMenuOpen(false)
-      }
-    }
-
-    const frame = window.requestAnimationFrame(updateMenuPosition)
-
-    window.addEventListener('mousedown', handlePointerDown)
-    window.addEventListener('keydown', handleEscape)
-    window.addEventListener('resize', updateMenuPosition)
-    window.addEventListener('scroll', updateMenuPosition, true)
-
-    return () => {
-      window.cancelAnimationFrame(frame)
-      window.removeEventListener('mousedown', handlePointerDown)
-      window.removeEventListener('keydown', handleEscape)
-      window.removeEventListener('resize', updateMenuPosition)
-      window.removeEventListener('scroll', updateMenuPosition, true)
-    }
-  }, [menuOpen])
-
-  const primaryAction = canTerminal
-    ? { label: '终端', icon: Terminal, onClick: () => onTerminal(item) }
-    : canChat
-      ? { label: '对话', icon: Bot, onClick: () => onChat(item) }
-      : canWebUI
-        ? { label: 'Web UI', icon: Globe, onClick: () => onWebUI(item) }
-        : { label: '详情', icon: Settings, onClick: () => onOpenDetail(item) }
-
-  const showDetailShortcut = primaryAction.label !== '详情'
 
   const menuItems = [
     chatAction || getAccessItem(item, 'api')
@@ -206,81 +139,61 @@ export function AgentActionsCell({
   ].filter((menuItem): menuItem is NonNullable<typeof menuItem> => Boolean(menuItem))
 
   return (
-    <div className="relative flex items-center justify-end gap-1">
+    <div className="relative inline-flex min-w-[188px] flex-nowrap items-center justify-start gap-2 whitespace-nowrap">
       <Button
-        className="h-8 min-w-[70px] rounded-lg px-2.5 shadow-none"
-        onClick={primaryAction.onClick}
+        className={terminalButtonClassName}
+        disabled={!canTerminal}
+        onClick={() => onTerminal(item)}
         size="sm"
-        title={primaryAction.label}
+        title={terminalAction?.reason || item.terminalDisabledReason || '当前状态不可进入终端'}
         type="button"
         variant="secondary"
       >
-        <primaryAction.icon size={15} />
-        {primaryAction.label}
+        <Terminal size={15} />
+        终端
       </Button>
-      {showDetailShortcut ? (
-        <Button
-          className="h-8 rounded-lg px-2.5 text-zinc-600 shadow-none"
-          onClick={() => onOpenDetail(item)}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          详情
-        </Button>
-      ) : null}
-      <div ref={triggerRef}>
-        <Button
-          aria-expanded={menuOpen}
-          className="h-8 w-8 rounded-lg px-0 text-zinc-500"
-          onClick={() => setMenuOpen((current) => !current)}
-          size="sm"
-          title="更多操作"
-          type="button"
-          variant="ghost"
-        >
-          <Ellipsis size={16} />
-        </Button>
-      </div>
+      <Button
+        className={detailButtonClassName}
+        onClick={() => onOpenDetail(item)}
+        size="sm"
+        type="button"
+        variant="primary"
+      >
+        详情
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            className="h-9 w-9 shrink-0 rounded-[10px] border-zinc-200 bg-white px-0 text-zinc-600 shadow-[0_1px_2px_rgba(24,24,27,0.05)] outline-none ring-0 hover:bg-zinc-50 hover:text-zinc-900 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+            size="sm"
+            title="更多操作"
+            type="button"
+            variant="secondary"
+          >
+            <Ellipsis size={17} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-[196px]" sideOffset={8}>
+          {menuItems.map((menuItem, index) => {
+            const Icon = menuItem.icon
 
-      {menuOpen && typeof document !== 'undefined'
-        ? createPortal(
-            <div
-              className="fixed z-50 min-w-[188px] rounded-xl border-[0.5px] border-zinc-200 bg-white p-1.5 shadow-[0_12px_32px_-14px_rgba(24,24,27,0.24)]"
-              ref={menuRef}
-              style={{
-                top: `${menuPosition.top}px`,
-                left: `${menuPosition.left}px`,
-                transformOrigin: menuPosition.transformOrigin,
-              }}
-            >
-              {menuItems.map((menuItem) => {
-                const Icon = menuItem.icon
-
-                return (
-                  <button
-                    className={cn(
-                      'flex h-8 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px]/5 text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40',
-                      menuItem.destructive ? 'hover:bg-rose-50 hover:text-rose-600' : '',
-                    )}
-                    disabled={menuItem.disabled}
-                    key={menuItem.key}
-                    onClick={() => {
-                      menuItem.onClick()
-                      setMenuOpen(false)
-                    }}
-                    title={menuItem.title}
-                    type="button"
-                  >
-                    <Icon size={15} />
-                    <span>{menuItem.label}</span>
-                  </button>
-                )
-              })}
-            </div>,
-            document.body,
-          )
-        : null}
+            return (
+              <div key={menuItem.key}>
+                {index > 0 && menuItem.destructive ? <DropdownMenuSeparator /> : null}
+                <DropdownMenuItem
+                  destructive={menuItem.destructive}
+                  disabled={menuItem.disabled}
+                  onClick={menuItem.onClick}
+                  title={menuItem.title}
+                >
+                  <Icon size={15} />
+                  <span>{menuItem.label}</span>
+                </DropdownMenuItem>
+              </div>
+            )
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }
