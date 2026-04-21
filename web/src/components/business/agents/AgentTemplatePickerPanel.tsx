@@ -66,7 +66,7 @@ function TemplateCard({
           </span>
         </div>
 
-        <p className="line-clamp-2 min-h-[2.9rem] w-full text-[12px]/5 text-zinc-500">
+        <p className="line-clamp-2 min-h-[2.9rem] w-full text-[11px]/5 text-zinc-500">
           {template.description}
         </p>
 
@@ -103,7 +103,7 @@ export function AgentTemplatePickerPanel({
   templates,
 }: AgentTemplatePickerPanelProps) {
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
       {templates.map((template) => (
         <TemplateCard
           key={template.id}

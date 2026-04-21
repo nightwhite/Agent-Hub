@@ -74,7 +74,7 @@ export function AgentDetailHeader({
           };
 
   return (
-    <header className="flex min-h-[72px] w-full items-center justify-between gap-3 py-2.5">
+    <header className="flex min-h-[64px] w-full items-center justify-between gap-2.5 py-2">
       <div className="flex min-w-0 items-center gap-2">
         <button
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
@@ -86,7 +86,7 @@ export function AgentDetailHeader({
         </button>
 
         <div className="flex min-w-0 items-center gap-2">
-          <div className="truncate text-[1.28rem]/7 font-semibold tracking-[-0.028em] text-zinc-950">
+          <div className="truncate text-[1.15rem]/7 font-semibold tracking-[-0.025em] text-zinc-950">
             {item.aliasName || item.name}
           </div>
           <StatusBadge status={item.status} />
@@ -99,7 +99,7 @@ export function AgentDetailHeader({
         <Button
           className="w-9 bg-white px-0 text-zinc-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
           onClick={onDelete}
-          size="md"
+          size="sm"
           title="删除"
           type="button"
           variant="secondary"
@@ -111,7 +111,7 @@ export function AgentDetailHeader({
           className="w-9 bg-white px-0 text-zinc-500 hover:text-zinc-900"
           disabled={!item.terminalAvailable}
           onClick={onOpenTerminalWindow}
-          size="md"
+          size="sm"
           title={
             item.terminalAvailable
               ? "打开终端窗口"
@@ -154,10 +154,10 @@ export function AgentDetailHeader({
         </div>
 
         <Button
-          className="min-w-[82px] bg-zinc-900 text-white shadow-[0_1px_2px_rgba(24,24,27,0.14)] hover:bg-zinc-800"
+          className="min-w-[74px] bg-zinc-900 text-white shadow-[0_1px_2px_rgba(24,24,27,0.14)] hover:bg-zinc-800"
           disabled={primaryAction.disabled}
           onClick={primaryAction.onClick}
-          size="md"
+          size="sm"
           title={primaryAction.title}
           type="button"
           variant="primary"

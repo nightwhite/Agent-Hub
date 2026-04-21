@@ -14,17 +14,17 @@ export function AgentWebUIWorkspace({ url, reason }: AgentWebUIWorkspaceProps) {
           <Globe size={22} />
         </div>
         <div className="mt-4 text-base font-medium text-slate-950">
-          Web UI 工作台
+          Web UI
         </div>
         <p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">
-          {reason || "当前实例暂时没有可用的 Web UI 地址。"}
+          {reason || "当前实例没有可用的 Web UI 地址。"}
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full min-h-[460px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div className="flex h-full min-h-[400px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
         <div className="min-w-0">
           <div className="text-sm font-medium text-slate-950">Web UI</div>

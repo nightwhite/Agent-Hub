@@ -31,12 +31,12 @@ interface AgentConfigFormProps {
 }
 
 function formatKeySourceLabel(value = "", ready = false) {
-  if (!ready) return "未准备";
+  if (!ready) return "未配置";
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
-  if (!normalized || normalized === "unset") return "未准备";
-  if (normalized === "workspace-aiproxy") return "由工作区提供";
+  if (!normalized || normalized === "unset") return "未配置";
+  if (normalized === "workspace-aiproxy") return "工作区 AI Proxy";
   return value;
 }
 
@@ -173,12 +173,12 @@ export function AgentConfigForm({
   const renderBaseConfig = () => (
     <FormItem
       className={formWidthClassName}
-      hint="实例名称会在提交时自动生成并继续用于资源关联。"
+      hint="系统会自动生成实例名称。"
       label={mode === "create" ? "别名" : "基础信息"}
     >
       {mode === "create" ? (
         <Input
-          className="w-[320px]"
+          className="w-full max-w-[320px]"
           onChange={(event) => onChange("aliasName", event.target.value)}
           placeholder="例如：客服助手"
           value={blueprint.aliasName}
@@ -186,20 +186,20 @@ export function AgentConfigForm({
       ) : (
         <div className="flex flex-wrap items-start gap-4">
           <Input
-            className="w-[360px]"
+            className="w-full max-w-[360px]"
             label="别名"
             onChange={(event) => onChange("aliasName", event.target.value)}
             placeholder="例如：客服助手"
             value={blueprint.aliasName}
           />
           <Input
-            className="w-[220px] font-mono text-xs"
+            className="w-full max-w-[220px] font-mono text-xs"
             disabled
             label="实例名称"
             value={blueprint.appName}
           />
           <Input
-            className="w-[220px] font-mono text-xs"
+            className="w-full max-w-[220px] font-mono text-xs"
             disabled
             label="命名空间"
             value={blueprint.namespace}
@@ -299,7 +299,7 @@ export function AgentConfigForm({
           onChange={(event) => handleModelChange(event.target.value)}
           value={fieldValue}
         >
-          <option value="">请选择模型</option>
+          <option value="">选择模型</option>
           {template.modelOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.helper
@@ -317,8 +317,8 @@ export function AgentConfigForm({
           className="w-full font-mono text-xs"
           hint={
             mode === "create"
-              ? "创建时会自动使用当前工作区的模型地址。"
-              : "保存后将更新为新的模型地址。"
+              ? "创建时自动使用工作区地址。"
+              : "保存后更新模型地址。"
           }
           label="模型地址"
           onChange={
@@ -342,7 +342,6 @@ export function AgentConfigForm({
       return (
         <Input
           className="w-full font-mono text-xs"
-          hint="这里仅展示密钥来源，密钥内容不会显示在页面上。"
           label="密钥来源"
           readOnly
           value={keySourceLabel}
@@ -359,7 +358,7 @@ export function AgentConfigForm({
           onChange={(event) => onChangeSettingField(field, event.target.value)}
           value={fieldValue}
         >
-          <option value="">请选择</option>
+          <option value="">选择</option>
           {(field.options || []).map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
@@ -399,7 +398,7 @@ export function AgentConfigForm({
         </div>
       ) : (
         <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-[12px]/5 text-zinc-500">
-          当前模板没有额外 Agent 配置项。
+          当前模板没有额外配置项。
         </div>
       )}
 

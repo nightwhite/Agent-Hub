@@ -38,14 +38,14 @@ export function AgentTemplateSelectPage() {
     <AgentWorkspaceShell>
       <div className="flex h-full w-full flex-col overflow-hidden">
         <div className={cn(AGENT_HUB_DIALOG_CONTENT_CLASSNAME, 'flex h-full flex-col')}>
-          <header className="flex h-24 w-full items-center justify-between">
+          <header className="flex w-full items-center justify-between py-3">
             <button
               className="flex cursor-pointer items-center gap-2 text-zinc-900"
               onClick={() => navigate('/agents')}
               type="button"
             >
               <ArrowLeft className="h-5 w-5" />
-              <p className="text-2xl/8 font-semibold tracking-[-0.02em]">模板市场</p>
+              <p className="text-[1.35rem]/8 font-semibold tracking-[-0.02em]">模板市场</p>
             </button>
           </header>
 
@@ -68,16 +68,16 @@ export function AgentTemplateSelectPage() {
             <div className="min-h-0 flex-1">
               <div className="flex h-full flex-col">
                 <div className="flex flex-col gap-2 pb-3 lg:flex-row lg:items-center lg:justify-between">
-                  <h2 className="text-sm/5 font-medium text-zinc-900">全部模板</h2>
-                  <span className="shrink-0 text-sm/5 text-zinc-500">
+                  <h2 className="text-[13px]/5 font-medium text-zinc-900">全部模板</h2>
+                  <span className="shrink-0 text-[12px]/5 text-zinc-500">
                     {filteredTemplates.length} 个模板
                   </span>
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto pb-4 pr-1 lg:pr-2">
                   {loading ? (
-                    <div className="workbench-card-strong flex min-h-[320px] items-center justify-center text-sm text-zinc-500">
-                      正在加载模板目录...
+                    <div className="workbench-card-strong flex min-h-[320px] items-center justify-center text-[13px]/5 text-zinc-500">
+                      正在载入模板...
                     </div>
                   ) : filteredTemplates.length ? (
                     <AgentTemplatePickerPanel

@@ -18,15 +18,15 @@ const emptyCopy: Record<
   }
 > = {
   create: {
-    title: '创建你的第一个 Agent',
-    description: '从模板市场开始配置实例，整个列表会回到标准的工作台管理视图。',
-    actionLabel: '从模板市场开始',
+    title: '还没有 Agent',
+    description: '从模板中创建实例后，这里会显示运行状态和操作入口。',
+    actionLabel: '创建 Agent',
     image: '/images/list-empty.svg',
   },
   search: {
-    title: '没有相关 Agent',
-    description: '没有找到匹配结果，试试更换关键词，或者直接清空当前搜索条件。',
-    actionLabel: '清空搜索条件',
+    title: '未找到匹配结果',
+    description: '调整关键词，或清空筛选后重试。',
+    actionLabel: '清空搜索',
     image: '/images/search-empty.svg',
   },
 }
@@ -52,11 +52,11 @@ export function AgentListHeroEmpty({ mode, onAction }: AgentListHeroEmptyProps) 
       />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.9)_0%,rgba(255,255,255,0.42)_48%,rgba(255,255,255,0.92)_100%)]" />
       <div className="relative z-10 flex w-full max-w-[320px] -translate-y-4 flex-col items-center gap-1 text-center">
-        <div className="text-2xl/8 font-medium text-zinc-950">{content.title}</div>
-        <p className="text-sm/6 text-zinc-500">{content.description}</p>
+        <div className="text-[1.35rem]/8 font-medium tracking-[-0.02em] text-zinc-950">{content.title}</div>
+        <p className="text-[13px]/6 text-zinc-500">{content.description}</p>
         {interactive ? (
           <Button
-            className="pointer-events-none mt-3 h-8 border-zinc-200 bg-white text-zinc-700 shadow-none"
+            className="pointer-events-none mt-3 border-zinc-200 bg-white text-zinc-700 shadow-none"
             size="sm"
             type="button"
             variant="secondary"

@@ -16,8 +16,8 @@ export function AgentChatWorkspace({
   onDraftChange,
   onSend,
   onOpen,
-  emptyTitle = '对话工作台',
-  emptyDescription = '打开后可以直接和 Agent 对话，验证回复效果。',
+  emptyTitle = '对话',
+  emptyDescription = '连接后即可开始会话。',
 }: AgentChatWorkspaceProps) {
   if (!session) {
     return (
@@ -31,7 +31,7 @@ export function AgentChatWorkspace({
           <div className="mt-4">
             <Button onClick={onOpen}>
               <Bot size={16} />
-              开始对话
+              打开对话
             </Button>
           </div>
         ) : null}
@@ -40,7 +40,7 @@ export function AgentChatWorkspace({
   }
 
   return (
-    <div className="flex h-full min-h-[460px] flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div className="flex h-full min-h-[400px] flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
         <div>
           <div className="text-sm font-medium text-slate-950">
@@ -63,7 +63,7 @@ export function AgentChatWorkspace({
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
             {!session.messages.length ? (
                 <div className="flex h-full min-h-[180px] items-center justify-center text-sm text-slate-400">
-                发送第一条消息开始对话。
+                发送第一条消息开始会话。
                 </div>
             ) : (
               session.messages.map((message) => (

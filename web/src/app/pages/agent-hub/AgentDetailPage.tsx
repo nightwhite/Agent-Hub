@@ -26,6 +26,7 @@ import {
 import { AgentPageHeader } from "./components/AgentPageHeader";
 import { AgentHubOverview } from "./components/AgentHubOverview";
 import { AgentWorkspaceShell } from "./components/AgentWorkspaceShell";
+import { AGENT_HUB_DIALOG_CONTENT_CLASSNAME } from "./components/workspaceLayout";
 import { useAgentHub } from "./hooks/AgentHubControllerContext";
 import { useAgentChat } from "./hooks/useAgentChat";
 import { useAgentFiles } from "./hooks/useAgentFiles";
@@ -296,7 +297,7 @@ export function AgentDetailPage() {
       case "chat":
         return (
           <AgentChatWorkspace
-            emptyDescription="进入对话页后会自动初始化当前 Agent 的会话，你可以直接在这里进行功能验证。"
+            emptyDescription="打开后即可开始对话。"
             onDraftChange={setChatDraft}
             onOpen={() => openChat(item)}
             onSend={sendChatMessage}
@@ -392,9 +393,9 @@ export function AgentDetailPage() {
   if ((controller.loading || resolvingMissing) && !item) {
     return (
       <AgentWorkspaceShell>
-        <div className="flex h-full min-w-0 flex-col px-3 min-[1280px]:px-6">
-          <div className="flex min-h-20 w-full items-center text-sm text-zinc-500">
-            正在加载 Agent 详情...
+        <div className={`${AGENT_HUB_DIALOG_CONTENT_CLASSNAME} flex h-full min-w-0 flex-col`}>
+          <div className="flex min-h-16 w-full items-center text-[13px]/5 text-zinc-500">
+            正在载入实例详情...
           </div>
         </div>
       </AgentWorkspaceShell>
@@ -404,7 +405,7 @@ export function AgentDetailPage() {
   if (!item) {
     return (
       <AgentWorkspaceShell>
-        <div className="flex h-full min-w-0 flex-col px-3 min-[1280px]:px-6">
+        <div className={`${AGENT_HUB_DIALOG_CONTENT_CLASSNAME} flex h-full min-w-0 flex-col`}>
           <AgentPageHeader
             backLabel="返回 Agent 列表"
             backTo="/agents"
@@ -415,7 +416,7 @@ export function AgentDetailPage() {
             <div className="workbench-card-strong flex h-full min-h-[320px] flex-1 items-center justify-center px-6 py-16 text-center text-sm text-zinc-500">
               当前没有找到名为{" "}
               <span className="font-medium text-zinc-950">{agentName}</span> 的
-              Agent。
+              实例。
             </div>
           </main>
         </div>
@@ -425,7 +426,7 @@ export function AgentDetailPage() {
 
   return (
     <AgentWorkspaceShell>
-      <div className="flex h-full min-w-0 flex-col px-3 min-[1280px]:px-6">
+      <div className={`${AGENT_HUB_DIALOG_CONTENT_CLASSNAME} flex h-full min-w-0 flex-col`}>
         <AgentDetailHeader
           item={item}
           onBack={() => navigate("/agents")}

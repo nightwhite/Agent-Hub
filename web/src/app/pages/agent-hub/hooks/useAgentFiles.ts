@@ -101,7 +101,7 @@ const createFilesSession = (resource: AgentListItem): FilesSessionState => ({
   draftContent: '',
   previewObjectUrl: '',
   previewObjectType: '',
-  activity: '正在初始化文件工作台...',
+  activity: '文件初始化中...',
   browsing: false,
   previewing: false,
   reading: false,
@@ -457,7 +457,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
           reading: openedMatch ? session.reading : false,
           saving: openedMatch ? session.saving : false,
           downloading: openedMatch ? session.downloading : false,
-          activity: `已载入目录 ${listing.path}`,
+          activity: `已打开目录 ${listing.path}`,
         }
       })
     },
@@ -524,7 +524,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               ...session,
               status: 'working',
               error: '',
-              activity: `正在载入目录 ${requestedPath}...`,
+              activity: `载入目录 ${requestedPath}...`,
               browsing: true,
             }
           : session,
@@ -596,8 +596,8 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               dirty: false,
               activity:
                 mode === 'edit'
-                  ? `正在载入 ${item.name} 以便编辑...`
-                  : `正在预览 ${item.name}...`,
+                  ? `载入 ${item.name}...`
+                  : `预览 ${item.name}...`,
             }
           : session,
       )
@@ -681,7 +681,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               draftContent: '',
               previewObjectType: '',
               dirty: false,
-              activity: `正在预览 ${item.name}...`,
+              activity: `预览 ${item.name}...`,
             }
           : session,
       )
@@ -725,7 +725,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
                 previewing: false,
                 previewObjectUrl: objectUrl,
                 previewObjectType: blob.type,
-                activity: `已打开 ${item.name} 的预览`,
+                activity: `已打开 ${item.name}`,
               }
             : session,
         )
@@ -772,7 +772,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               selectedItem: item,
               openedItem: null,
               error: '',
-              activity: '当前对象暂不支持预览。',
+              activity: '当前对象不支持预览。',
             }
           : session,
       )
@@ -790,7 +790,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               selectedItem: item,
               detailMode: 'preview',
               error: '',
-              activity: `已打开 ${item.name} 的预览`,
+              activity: `已打开 ${item.name}`,
             }
           : session,
       )
@@ -817,7 +817,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
             selectedItem: item,
             openedItem: null,
             error: '',
-            activity: '当前文件暂不支持内嵌预览，请直接下载查看。',
+            activity: '当前文件不支持内嵌预览。',
           }
         : session,
     )
@@ -852,7 +852,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               selectedItem: item,
               openedItem: null,
               error: '当前文件不支持在线编辑。',
-              activity: '当前文件不支持在线编辑，请直接下载查看。',
+              activity: '当前文件不支持在线编辑。',
             }
           : session,
       )
@@ -873,7 +873,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               reading: false,
               draftContent: session.dirty ? session.draftContent : session.previewContent,
               error: '',
-              activity: `正在编辑 ${item.name}`,
+              activity: `编辑 ${item.name}`,
             }
           : session,
       )
@@ -929,7 +929,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               status: 'working',
               error: '',
               saving: true,
-              activity: `正在保存 ${activeItem.name}...`,
+              activity: `保存 ${activeItem.name}...`,
             }
           : session,
       )
@@ -972,7 +972,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
                     }
                   : session.openedItem,
               dirty: false,
-              activity: `保存成功：${activeItem.path}`,
+              activity: `已保存 ${activeItem.path}`,
             }
           : session,
       )
@@ -1011,7 +1011,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               ...session,
               status: 'working',
               error: '',
-              activity: `正在创建文件 ${nextName}...`,
+              activity: `创建文件 ${nextName}...`,
             }
           : session,
       )
@@ -1054,7 +1054,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               ...session,
               status: 'working',
               error: '',
-              activity: `正在创建目录 ${nextName}...`,
+              activity: `创建目录 ${nextName}...`,
             }
           : session,
       )
@@ -1090,7 +1090,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               ...session,
               status: 'working',
               error: '',
-              activity: `正在删除 ${path}...`,
+              activity: `删除 ${path}...`,
             }
           : session,
       )
@@ -1161,7 +1161,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               status: 'working',
               error: '',
               downloading: true,
-              activity: `正在下载 ${path}...`,
+              activity: `下载 ${path}...`,
             }
           : session,
       )
@@ -1220,7 +1220,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               status: 'working',
               error: '',
               uploading: true,
-              activity: `正在上传 ${fileList.length} 个文件...`,
+              activity: `上传中（${fileList.length} 个文件）...`,
             }
           : session,
       )
@@ -1300,7 +1300,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               ...session,
               status: 'connecting',
               error: '',
-              activity: '正在建立文件连接...',
+              activity: '连接中...',
             }
           : session,
       )
@@ -1356,7 +1356,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
                   podName: String(data.podName || ''),
                   containerName: String(data.container || ''),
                   namespace: String(data.namespace || session.namespace || ''),
-                  activity: '文件工作台已连接。',
+                  activity: '已连接。',
                 }
               : session,
           )
@@ -1405,14 +1405,14 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     })
 
     socket.addEventListener('error', () => {
-      rejectPendingRequests('文件连接异常，请关闭后重新打开。')
+      rejectPendingRequests('文件连接异常，请重试。')
       syncSession((session) =>
         session
           ? {
               ...session,
               status: 'error',
-              error: '文件连接异常，请关闭后重新打开。',
-              activity: '文件连接异常，请关闭后重新打开。',
+              error: '文件连接异常，请重试。',
+              activity: '文件连接异常，请重试。',
             }
           : session,
       )

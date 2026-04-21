@@ -7,6 +7,7 @@ import { AgentHubHeader } from "./components/AgentHubHeader";
 import { AgentListHeroEmpty } from "./components/AgentListHeroEmpty";
 import { AgentHubOverview } from "./components/AgentHubOverview";
 import { AgentWorkspaceShell } from "./components/AgentWorkspaceShell";
+import { AGENT_HUB_DIALOG_CONTENT_CLASSNAME } from "./components/workspaceLayout";
 import { useAgentHub } from "./hooks/AgentHubControllerContext";
 import { useAgentChat } from "./hooks/useAgentChat";
 import { useAgentFiles } from "./hooks/useAgentFiles";
@@ -113,7 +114,7 @@ export function AgentsListPage() {
 
   return (
     <AgentWorkspaceShell>
-      <div className="mx-auto flex h-full w-full max-w-[1680px] min-w-0 flex-col px-4 lg:px-5 xl:px-6">
+      <div className={`${AGENT_HUB_DIALOG_CONTENT_CLASSNAME} flex h-full min-w-0 flex-col`}>
         <AgentHubHeader
           keyword={keyword}
           namespace={controller.clusterInfo?.namespace}
@@ -128,7 +129,7 @@ export function AgentsListPage() {
 
           {controller.loading ? (
             <div className="workbench-card-strong flex h-full min-h-[320px] flex-1 items-center justify-center px-6 py-16 text-center text-sm text-zinc-500">
-              正在加载 Agent 实例...
+              正在载入实例列表...
             </div>
           ) : filteredItems.length === 0 && controller.items.length > 0 ? (
             <AgentListHeroEmpty mode="search" onAction={() => setKeyword("")} />

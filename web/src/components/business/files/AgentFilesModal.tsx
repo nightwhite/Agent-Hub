@@ -46,7 +46,7 @@ export function AgentFilesModal({
 
   return (
     <Modal
-      description="管理当前 Agent 工作目录中的文件，支持目录切换、Markdown 预览与常用文本编辑。"
+      description="浏览与编辑当前实例目录。"
       footer={
         <Button onClick={onClose} variant="secondary">
           关闭

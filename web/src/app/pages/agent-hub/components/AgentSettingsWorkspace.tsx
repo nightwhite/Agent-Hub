@@ -36,12 +36,12 @@ interface AgentSettingsWorkspaceProps {
 }
 
 function formatKeySourceLabel(value = "", ready = false) {
-  if (!ready) return "未准备";
+  if (!ready) return "未配置";
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
-  if (!normalized || normalized === "unset") return "未准备";
-  if (normalized === "workspace-aiproxy") return "由工作区提供";
+  if (!normalized || normalized === "unset") return "未配置";
+  if (normalized === "workspace-aiproxy") return "工作区 AI Proxy";
   return value;
 }
 
@@ -171,7 +171,7 @@ export function AgentSettingsWorkspace({
       return (
         <Input
           className="w-full max-w-[360px]"
-          hint="该字段会随模型自动切换。"
+          hint="随模型自动切换。"
           label="模型渠道"
           readOnly
           value={formatModelProviderLabel(fieldValue)}
@@ -188,7 +188,7 @@ export function AgentSettingsWorkspace({
           onChange={(event) => handleModelChange(event.target.value)}
           value={fieldValue}
         >
-          <option value="">请选择模型</option>
+          <option value="">选择模型</option>
           {template.modelOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.helper
@@ -204,7 +204,7 @@ export function AgentSettingsWorkspace({
       return (
         <Input
           className="w-full font-mono text-xs"
-          hint="这里展示并提交当前 Agent 的模型入口地址。"
+          hint="模型入口地址。"
           label={field.label}
           onChange={(event) => onSettingsFieldChange(field, event.target.value)}
           readOnly={field.readOnly}
@@ -221,7 +221,6 @@ export function AgentSettingsWorkspace({
       return (
         <Input
           className="w-full font-mono text-xs"
-          hint="这里仅展示密钥来源，密钥内容不会显示在页面上。"
           label="密钥来源"
           readOnly
           value={keySourceLabel}
@@ -238,7 +237,7 @@ export function AgentSettingsWorkspace({
           onChange={(event) => onSettingsFieldChange(field, event.target.value)}
           value={fieldValue}
         >
-          <option value="">请选择</option>
+          <option value="">选择</option>
           {(field.options || []).map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
@@ -268,14 +267,14 @@ export function AgentSettingsWorkspace({
     <div className="workbench-card-strong flex h-full min-h-0 flex-col overflow-y-auto p-3.5 min-[1320px]:p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">
+          <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">
+            设置
+          </div>
+          <div className="mt-1 text-[1rem]/6 font-semibold tracking-[-0.02em] text-zinc-950">
             实例设置
           </div>
-          <div className="mt-1 text-[1.06rem]/6 font-semibold tracking-[-0.03em] text-zinc-950">
-            实例设置
-          </div>
-          <div className="mt-1 text-[12px]/5 text-zinc-500">
-            在这里调整资源规格和 Agent 运行参数。
+          <div className="mt-1 text-[11px]/5 text-zinc-500">
+            调整资源规格和运行参数。
           </div>
         </div>
         <div className="rounded-full border-[0.5px] border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px]/4 font-medium text-zinc-600">
@@ -382,7 +381,6 @@ export function AgentSettingsWorkspace({
             <span className="font-medium text-zinc-700">
               {item.contract.runtime.runtimeClassName || "devbox-runtime"}
             </span>
-            。
           </div>
         </SectionCard>
 
@@ -419,7 +417,7 @@ export function AgentSettingsWorkspace({
               </div>
             ) : (
               <div className="rounded-xl border-[0.5px] border-zinc-200 bg-zinc-50 px-3.5 py-2.5 text-[11px]/5 text-zinc-500">
-                当前模板没有额外 Agent 配置项。
+                当前模板没有额外配置项。
               </div>
             )}
           </div>

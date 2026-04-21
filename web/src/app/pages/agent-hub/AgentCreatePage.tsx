@@ -121,7 +121,7 @@ export function AgentCreatePage() {
         <AgentCreateHeader
           description={
             selectedTemplate
-              ? `按 ${selectedTemplate.name} 模板创建新的 Agent 实例`
+              ? `基于 ${selectedTemplate.name} 创建实例`
               : undefined
           }
           onBack={() => navigate("/agents/templates")}
@@ -170,7 +170,7 @@ export function AgentCreatePage() {
           >
             <AgentHubOverview message={message} />
 
-            <div className="grid w-full items-start gap-4 min-[980px]:grid-cols-[260px_minmax(0,1fr)] min-[1320px]:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="grid w-full items-start gap-4 min-[1120px]:grid-cols-[250px_minmax(0,1fr)] min-[1360px]:grid-cols-[280px_minmax(0,1fr)]">
               {selectedTemplate ? (
                 <AgentCreateSidebar
                   blueprint={blueprint}
@@ -178,29 +178,29 @@ export function AgentCreatePage() {
                 />
               ) : null}
 
-              <section className="min-w-0 w-full max-w-[860px] justify-self-center min-[980px]:max-w-none min-[980px]:justify-self-auto">
+              <section className="min-w-0 w-full">
                 {waitingForBlueprint ? (
                   <div className="workbench-card-strong flex min-h-[420px] flex-col items-center justify-center px-6 py-8 text-center">
                     <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">
-                      正在准备
+                      初始化中
                     </div>
-                    <div className="mt-2 text-[1.35rem]/8 font-semibold tracking-[-0.03em] text-zinc-950">
-                      正在准备创建配置
+                    <div className="mt-2 text-[1.2rem]/7 font-semibold tracking-[-0.03em] text-zinc-950">
+                      正在载入配置
                     </div>
-                    <div className="mt-2 max-w-[28rem] text-[13px]/6 text-zinc-500">
-                      正在读取模板与默认配置，请稍候。
+                    <div className="mt-2 max-w-[28rem] text-[12px]/5 text-zinc-500">
+                      请稍候。
                     </div>
                   </div>
                 ) : missingClusterContext ? (
                   <div className="workbench-card-strong flex min-h-[420px] flex-col items-center justify-center px-6 py-8 text-center">
                     <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">
-                      暂时不可用
+                      不可用
                     </div>
-                    <div className="mt-2 text-[1.35rem]/8 font-semibold tracking-[-0.03em] text-zinc-950">
-                      当前工作区还没准备好
+                    <div className="mt-2 text-[1.2rem]/7 font-semibold tracking-[-0.03em] text-zinc-950">
+                      工作区信息不可用
                     </div>
-                    <div className="mt-2 max-w-[30rem] text-[13px]/6 text-zinc-500">
-                      请先返回列表页再重新进入，然后继续创建。
+                    <div className="mt-2 max-w-[30rem] text-[12px]/5 text-zinc-500">
+                      返回列表页后重新进入创建流程。
                     </div>
                     <div className="mt-5">
                       <Button

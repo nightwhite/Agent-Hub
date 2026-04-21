@@ -66,7 +66,7 @@ export function AgentCreateSidebar({
   const accessLabel = template.access.map((access) => access.label).join(' · ')
 
   return (
-    <aside className="grid w-full gap-4 min-[760px]:grid-cols-2 min-[980px]:w-[260px] min-[980px]:grid-cols-1 min-[1320px]:w-[280px]">
+    <aside className="grid w-full gap-4 min-[760px]:grid-cols-2 min-[1120px]:w-[250px] min-[1120px]:grid-cols-1 min-[1360px]:w-[280px]">
       <SidebarSection title="已选模板">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border-[0.5px] border-zinc-200 bg-zinc-50">
@@ -92,7 +92,7 @@ export function AgentCreateSidebar({
             <div className="mt-1.5 text-lg/7 font-semibold tracking-[-0.03em] text-zinc-950">
               {blueprint.aliasName || '未填写'}
             </div>
-            <div className="mt-1 text-[12px]/5 text-zinc-500">实例名由系统自动生成并用于资源关联。</div>
+            <div className="mt-1 text-[12px]/5 text-zinc-500">实例名由系统自动生成。</div>
           </div>
 
           <SummaryRow

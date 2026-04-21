@@ -16,7 +16,7 @@ export function AgentCreateHeader({ title, description, onBack, actions }: Agent
       <div
         className={cn(
           AGENT_HUB_DIALOG_CONTENT_CLASSNAME,
-          'flex flex-col gap-3 py-4 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between',
+          'flex flex-col gap-3 py-3 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between',
         )}
       >
         <div className="flex min-w-0 items-start gap-3">
@@ -29,12 +29,12 @@ export function AgentCreateHeader({ title, description, onBack, actions }: Agent
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="min-w-0">
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-400">创建 Agent</div>
-            <div className="mt-1 truncate text-[1.75rem]/[2rem] font-semibold tracking-[-0.04em] text-zinc-950">
+            <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-400">创建 Agent</div>
+            <div className="mt-1 truncate text-[1.4rem]/8 font-semibold tracking-[-0.03em] text-zinc-950">
               {title}
             </div>
             {description ? (
-              <div className="mt-1 max-w-[48ch] text-[13px]/6 text-zinc-500">{description}</div>
+              <div className="mt-1 max-w-[48ch] text-[12px]/5 text-zinc-500">{description}</div>
             ) : null}
           </div>
         </div>
