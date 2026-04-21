@@ -4,6 +4,87 @@
 import { parse as parseYaml } from 'yaml'
 import { dedupeAuthCandidates, getNow, maskTokenForLog, toKubeconfigScalar } from './shared'
 
+const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const collectNestedRecords = (value, maxDepth = 3) => {
+  const records = []
+  const queue = [{ value, depth: 0 }]
+  const seen = new Set()
+
+  while (queue.length) {
+    const current = queue.shift()
+    if (!current) continue
+
+    const { value: currentValue, depth } = current
+    if (!currentValue || depth > maxDepth || seen.has(currentValue)) {
+      continue
+    }
+
+    if (Array.isArray(currentValue)) {
+      seen.add(currentValue)
+      currentValue.forEach((item) => {
+        if ((isRecord(item) || Array.isArray(item)) && depth < maxDepth) {
+          queue.push({ value: item, depth: depth + 1 })
+        }
+      })
+      continue
+    }
+
+    if (!isRecord(currentValue)) {
+      continue
+    }
+
+    seen.add(currentValue)
+    records.push(currentValue)
+
+    if (depth >= maxDepth) {
+      continue
+    }
+
+    Object.values(currentValue).forEach((item) => {
+      if (isRecord(item) || Array.isArray(item)) {
+        queue.push({ value: item, depth: depth + 1 })
+      }
+    })
+  }
+
+  return records
+}
+
+const findScalarByKeys = (records = [], keys = []) => {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = toKubeconfigScalar(record?.[key])
+      if (value) {
+        return value
+      }
+    }
+  }
+  return ''
+}
+
+const decodeBase64Utf8 = (value = '') => {
+  if (!value) return ''
+
+  try {
+    if (typeof window !== 'undefined' && typeof window.atob === 'function') {
+      return decodeURIComponent(
+        Array.from(window.atob(value))
+          .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
+          .join(''),
+      )
+    }
+
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(value, 'base64').toString('utf8')
+    }
+  } catch {
+    return ''
+  }
+
+  return ''
+}
+
 const extractExecEnvTokenCandidates = (envList = []) =>
   dedupeAuthCandidates(
     (Array.isArray(envList) ? envList : [])
@@ -123,6 +204,18 @@ const normalizeKubeconfig = (raw = '') => {
     !/\n/.test(trimmed)
 
   if (!looksEncoded) {
+    const maybeBase64 =
+      !/\n/.test(trimmed) &&
+      /^[A-Za-z0-9+/=\s]+$/.test(trimmed) &&
+      trimmed.length % 4 === 0
+
+    if (maybeBase64) {
+      const decodedBase64 = decodeBase64Utf8(trimmed).trim()
+      if (/^apiVersion:/m.test(decodedBase64) && /^clusters:/m.test(decodedBase64)) {
+        return decodedBase64
+      }
+    }
+
     return trimmed
   }
 
@@ -140,19 +233,45 @@ const normalizeKubeconfig = (raw = '') => {
   return trimmed
 }
 
+const extractSessionSnapshot = (session) => {
+  const records = collectNestedRecords(session, 4)
+
+  const kubeconfig = (() => {
+    const kubeconfigKeys = ['kubeconfig', 'kc', 'kubeConfig', 'kube_config']
+    for (const record of records) {
+      for (const key of kubeconfigKeys) {
+        const normalized = normalizeKubeconfig(record?.[key])
+        if (normalized) {
+          return normalized
+        }
+      }
+    }
+    return ''
+  })()
+
+  return {
+    kubeconfig,
+    server: findScalarByKeys(records, ['server', 'clusterServer', 'apiServer']),
+    namespace: findScalarByKeys(records, ['namespace', 'nsid', 'ns']),
+    token: findScalarByKeys(records, ['token', 'accessToken', 'access_token', 'idToken', 'id_token']),
+    userId: findScalarByKeys(records, ['id', 'userId', 'uid']),
+    userName: findScalarByKeys(records, ['name', 'username', 'userName']),
+  }
+}
+
 export const createClusterContext = (session) => {
   const storedKubeconfig = typeof window !== 'undefined' ? sessionStorage.getItem('hermes-kubeconfig') || '' : ''
   const storedOperator = typeof window !== 'undefined' ? sessionStorage.getItem('hermes-operator') || '' : ''
-  const kubeconfig = normalizeKubeconfig(session?.kubeconfig || session?.kc || storedKubeconfig)
+  const sessionSnapshot = extractSessionSnapshot(session)
+  const kubeconfig = sessionSnapshot.kubeconfig || normalizeKubeconfig(storedKubeconfig)
   const parsedKubeconfig = parseKubeconfigStruct(kubeconfig)
-  const server = toKubeconfigScalar(session?.server || parsedKubeconfig.server || parseKubeconfigValue(kubeconfig, 'server'))
+  const server = toKubeconfigScalar(sessionSnapshot.server || parsedKubeconfig.server || parseKubeconfigValue(kubeconfig, 'server'))
   const namespace = toKubeconfigScalar(
-    session?.namespace ||
-      session?.user?.nsid ||
+    sessionSnapshot.namespace ||
       parsedKubeconfig.namespace ||
       parseKubeconfigValue(kubeconfig, 'namespace'),
   )
-  const sessionToken = toKubeconfigScalar(session?.token)
+  const sessionToken = toKubeconfigScalar(sessionSnapshot.token)
   const authCandidates = dedupeAuthCandidates([
     ...(parsedKubeconfig.authCandidates || []),
     ...parseKubeconfigValues(kubeconfig, 'token').map((token) => ({
@@ -170,7 +289,7 @@ export const createClusterContext = (session) => {
     { source: 'session token', token: sessionToken },
   ])
   const token = parsedKubeconfig.token || authCandidates[0]?.token || ''
-  const operator = session?.user?.id || session?.user?.name || storedOperator || 'workspace'
+  const operator = sessionSnapshot.userId || sessionSnapshot.userName || storedOperator || 'workspace'
   const agentLabel = operator
 
   if (!kubeconfig) {

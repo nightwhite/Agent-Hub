@@ -21,8 +21,8 @@ import { Slider } from "../../ui/Slider";
 interface AgentConfigFormProps {
   template: AgentTemplateDefinition | null;
   blueprint: AgentBlueprint;
-  mode?: "create" | "edit";
   workspaceRegion: AgentHubRegion | string;
+  mode?: "create" | "edit";
   workspaceModelBaseURL?: string;
   workspaceModelKeyReady?: boolean;
   onChangeTemplate?: () => void;

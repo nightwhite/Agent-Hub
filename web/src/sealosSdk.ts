@@ -47,6 +47,21 @@ const ensureSdkReady = (): SealosSdkClient | null => {
   return null
 }
 
+const getLocalSealosSession = async () => {
+  if (!isBrowser) return null
+
+  try {
+    const response = await fetch('/__agenthub/local-session')
+    if (!response.ok) {
+      return null
+    }
+    return await response.json()
+  } catch (error) {
+    console.warn('[sealosSdk] local session fallback failed:', error)
+    return null
+  }
+}
+
 const requireSdkMethod = (methodName: keyof SealosSdkClient): SealosSdkMethod => {
   const client = ensureSdkReady()
   if (client && typeof client[methodName] === 'function') {
@@ -63,7 +78,18 @@ export const initSealosDesktopSdk = () => {
   return () => {}
 }
 
-export const getSealosSession = async () => requireSdkMethod('getSession')()
+export const getSealosSession = async () => {
+  try {
+    return await requireSdkMethod('getSession')()
+  } catch (error) {
+    console.warn('[sealosSdk] getSession failed, fallback to local session:', error)
+    const localSession = await getLocalSealosSession()
+    if (localSession) {
+      return localSession
+    }
+    throw error
+  }
+}
 export const getSealosLanguage = async () => requireSdkMethod('getLanguage')()
 export const getSealosQuota = async () => requireSdkMethod('getWorkspaceQuota')()
 export const getSealosHostConfig = async () => requireSdkMethod('getHostConfig')()

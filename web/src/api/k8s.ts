@@ -82,8 +82,8 @@ const mapIngressItem = (item, operator) => {
 
 const resourceConfig = {
   devbox: {
-    listPath: (namespace) => `/apis/devbox.sealos.io/v1alpha2/namespaces/${namespace}/devboxes`,
-    detailPath: (namespace, name) => `/apis/devbox.sealos.io/v1alpha2/namespaces/${namespace}/devboxes/${name}`,
+    listPath: (namespace) => `/apis/devbox.sealos.io/v1alpha1/namespaces/${namespace}/devboxes`,
+    detailPath: (namespace, name) => `/apis/devbox.sealos.io/v1alpha1/namespaces/${namespace}/devboxes/${name}`,
     mapper: mapDevboxItem,
   },
   service: {

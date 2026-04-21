@@ -77,8 +77,8 @@ describe('AgentConfigForm', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'GPT-5.4 Mini · OpenAI' }))
+    expect(screen.getAllByText('GPT-5.4 Mini · OpenAI').length).toBeGreaterThan(0)
     expect(screen.getByText('GLM-4.6 · GLM')).toBeInTheDocument()
-
     fireEvent.click(screen.getByText('GLM-4.6 · GLM'))
 
     expect(settingCalls).toContainEqual(['model', 'glm-4.6'])

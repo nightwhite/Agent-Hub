@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import fs from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -20,6 +22,9 @@ const BACKEND_PROXY_TARGET = process.env.VITE_AGENTHUB_BACKEND_TARGET || 'http:/
 const AGENT_HUB_BROWSER_TITLE = process.env.VITE_AGENTHUB_BROWSER_TITLE || 'Agent Hub Web'
 const AGENT_HUB_FAVICON_URL = process.env.VITE_AGENTHUB_FAVICON_URL || '/brand/agent-hub.svg'
 const INSECURE_HTTPS_AGENT = new https.Agent({ rejectUnauthorized: false })
+const LOCAL_KUBECONFIG_PATH =
+  process.env.VITE_AGENTHUB_LOCAL_KUBECONFIG_PATH ||
+  path.resolve(process.cwd(), '../.local/kubeconfig (3).yaml')
 
 const toScalar = (value: unknown) => {
   if (typeof value !== 'string') return ''
@@ -90,6 +95,45 @@ const parseProxyKubeconfig = (authorizationHeader = '') => {
     }
   } catch {
     return { kubeconfig: '', server: '', token: '' }
+  }
+}
+
+const loadLocalSealosSession = () => {
+  try {
+    if (!fs.existsSync(LOCAL_KUBECONFIG_PATH)) {
+      return null
+    }
+
+    const kubeconfig = fs.readFileSync(LOCAL_KUBECONFIG_PATH, 'utf8').trim()
+    if (!kubeconfig) {
+      return null
+    }
+
+    const parsed = parseYaml(kubeconfig) || {}
+    const contexts = Array.isArray(parsed.contexts) ? parsed.contexts : []
+    const clusters = Array.isArray(parsed.clusters) ? parsed.clusters : []
+    const currentContextName = parsed['current-context']
+    const selectedContext =
+      contexts.find((item: any) => item?.name === currentContextName) || contexts[0]
+    const selectedCluster =
+      clusters.find((item: any) => item?.name === selectedContext?.context?.cluster) || clusters[0]
+    const namespace = toScalar(selectedContext?.context?.namespace)
+    const server = toScalar(selectedCluster?.cluster?.server)
+
+    return {
+      kubeconfig,
+      kc: kubeconfig,
+      kubeConfig: kubeconfig,
+      namespace,
+      nsid: namespace,
+      server,
+      user: {
+        name: toScalar(selectedContext?.context?.user),
+      },
+    }
+  } catch (error) {
+    console.warn('[vite:local-session] failed to load local kubeconfig', error)
+    return null
   }
 }
 
@@ -190,7 +234,7 @@ const readRequestBody = async (req: AsyncIterable<Buffer | string>) => {
 }
 
 const isHandledK8sRestPath = (pathname = '') =>
-  /^\/k8s-api\/(api\/v1|apis\/devbox\.sealos\.io\/v1alpha2|apis\/networking\.k8s\.io\/v1)/.test(pathname)
+  /^\/k8s-api\/(api\/v1|apis\/devbox\.sealos\.io\/v1alpha1|apis\/networking\.k8s\.io\/v1)/.test(pathname)
 
 const createViteK8sRestMiddlewarePlugin = () => ({
   name: 'agenthub-k8s-rest-middleware',
@@ -322,12 +366,34 @@ const createAgentHubBrandHtmlPlugin = () => ({
   },
 })
 
+const createLocalSealosSessionPlugin = () => ({
+  name: 'agenthub-local-sealos-session',
+  configureServer(server: { middlewares: { use: (handler: any) => void } }) {
+    server.middlewares.use((req: any, res: any, next: () => void) => {
+      const requestUrl = getRequestUrl(req)
+      if (requestUrl.pathname !== '/__agenthub/local-session') {
+        next()
+        return
+      }
+
+      const session = loadLocalSealosSession()
+      if (!session) {
+        writeJson(res, 404, createStatusBody(404, 'local kubeconfig not found', 'NotFound'))
+        return
+      }
+
+      writeJson(res, 200, session)
+    })
+  },
+})
+
 export default defineConfig({
   plugins: [
     createAgentHubBrandHtmlPlugin(),
     react(),
     tailwindcss(),
     createViteK8sRestMiddlewarePlugin(),
+    createLocalSealosSessionPlugin(),
   ],
   server: {
     allowedHosts: true,
