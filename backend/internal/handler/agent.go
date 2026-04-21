@@ -1201,6 +1201,17 @@ func normalizeCreateRequestSettings(
 	region string,
 ) dto.CreateAgentRequest {
 	settings := map[string]any{}
+	allowedSettingKeys := map[string]bool{}
+	for _, field := range templateDef.Settings.Agent {
+		trimmedKey := strings.TrimSpace(field.Key)
+		if trimmedKey == "" {
+			continue
+		}
+		if field.ReadOnly && strings.TrimSpace(field.Binding.Kind) == "derived" {
+			continue
+		}
+		allowedSettingKeys[trimmedKey] = true
+	}
 	for key, value := range req.Settings {
 		trimmedKey := strings.TrimSpace(key)
 		if trimmedKey == "" {
@@ -1218,6 +1229,9 @@ func normalizeCreateRequestSettings(
 		return strings.TrimSpace(text)
 	}
 	setSetting := func(key, value string) {
+		if !allowedSettingKeys[key] {
+			return
+		}
 		trimmed := strings.TrimSpace(value)
 		if trimmed == "" {
 			return

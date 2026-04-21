@@ -1,7 +1,7 @@
 # Agent Hub UI 规范（v3）
 
 ## 0. 规范来源
-- 产品上下文：`/Users/night/Documents/code/sealos/Agent-Hub/.impeccable.md`
+- 产品上下文：`.impeccable.md`
 - 方法论来源：`impeccable` skill（重点采用 `extract` 与 `craft` 的约束）
 - 适用代码范围：
   - `web/src/app/pages/agent-hub/**`
@@ -79,7 +79,7 @@
 
 ## 3.3 字体与字号基线
 - 基础字体：`SF Pro Display / PingFang SC / Helvetica Neue / sans-serif`
-- 根字号：`14px`（`web/src/index.css`）
+- 根字号：桌面 `13.5px`，`<=640px` 为 `14px`（`web/src/index.css`）
 - UI 组件字号（固定尺寸，不使用 fluid type）：
   - 页面主标题：20px（`text-[1.28rem]`）
   - 区块标题：16px（`text-[1.02rem]`）
