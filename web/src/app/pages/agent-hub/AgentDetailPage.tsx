@@ -145,6 +145,7 @@ export function AgentDetailPage() {
     return () => {
       cancelled = true;
       resolvingMissingRef.current = false;
+      setResolvingMissing(false);
       if (wakePendingSleep) {
         wakePendingSleep();
       } else if (pendingSleepTimer != null) {
