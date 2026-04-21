@@ -22,9 +22,11 @@ const BACKEND_PROXY_TARGET = process.env.VITE_AGENTHUB_BACKEND_TARGET || 'http:/
 const AGENT_HUB_BROWSER_TITLE = process.env.VITE_AGENTHUB_BROWSER_TITLE || 'Agent Hub Web'
 const AGENT_HUB_FAVICON_URL = process.env.VITE_AGENTHUB_FAVICON_URL || '/brand/agent-hub.svg'
 const INSECURE_HTTPS_AGENT = new https.Agent({ rejectUnauthorized: false })
+const ENABLE_LOCAL_SESSION =
+  String(process.env.VITE_AGENTHUB_ENABLE_LOCAL_SESSION || '').toLowerCase() === 'true'
 const LOCAL_KUBECONFIG_PATH =
   process.env.VITE_AGENTHUB_LOCAL_KUBECONFIG_PATH ||
-  path.resolve(process.cwd(), '../.local/kubeconfig (3).yaml')
+  path.resolve(process.cwd(), '../.local/kubeconfig.yaml')
 
 const toScalar = (value: unknown) => {
   if (typeof value !== 'string') return ''
@@ -234,7 +236,29 @@ const readRequestBody = async (req: AsyncIterable<Buffer | string>) => {
 }
 
 const isHandledK8sRestPath = (pathname = '') =>
-  /^\/k8s-api\/(api\/v1|apis\/devbox\.sealos\.io\/v1alpha1|apis\/networking\.k8s\.io\/v1)/.test(pathname)
+  /^\/k8s-api\/(api\/v1|apis\/devbox\.sealos\.io\/v1alpha(?:1|2)|apis\/networking\.k8s\.io\/v1)/.test(
+    pathname,
+  )
+
+const isLoopbackAddress = (value: unknown) => {
+  const normalized = toScalar(value).toLowerCase()
+  if (!normalized) return false
+  return normalized === '127.0.0.1' || normalized === '::1' || normalized === '::ffff:127.0.0.1'
+}
+
+const isLoopbackRequest = (req: { headers?: Record<string, any>; socket?: { remoteAddress?: string } }) => {
+  const remoteAddress = req?.socket?.remoteAddress || ''
+  const forwardedRaw = req?.headers?.['x-forwarded-for']
+  const forwarded = Array.isArray(forwardedRaw)
+    ? forwardedRaw[0]
+    : String(forwardedRaw || '').split(',')[0] || ''
+
+  if (forwarded && !isLoopbackAddress(forwarded)) {
+    return false
+  }
+
+  return isLoopbackAddress(remoteAddress)
+}
 
 const createViteK8sRestMiddlewarePlugin = () => ({
   name: 'agenthub-k8s-rest-middleware',
@@ -373,6 +397,16 @@ const createLocalSealosSessionPlugin = () => ({
       const requestUrl = getRequestUrl(req)
       if (requestUrl.pathname !== '/__agenthub/local-session') {
         next()
+        return
+      }
+
+      if (!ENABLE_LOCAL_SESSION) {
+        writeJson(res, 404, createStatusBody(404, 'local session disabled', 'NotFound'))
+        return
+      }
+
+      if (!isLoopbackRequest(req)) {
+        writeJson(res, 403, createStatusBody(403, 'forbidden', 'Forbidden'))
         return
       }
 

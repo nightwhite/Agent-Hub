@@ -1,6 +1,9 @@
 import { createSealosApp, sealosApp } from '@labring/sealos-desktop-sdk/app'
 
 const isBrowser = typeof window !== 'undefined'
+const ENABLE_LOCAL_SESSION_FALLBACK =
+  import.meta.env.DEV &&
+  String(import.meta.env.VITE_AGENTHUB_ENABLE_LOCAL_SESSION || '').toLowerCase() === 'true'
 
 let sdkInitialized = false
 
@@ -48,7 +51,7 @@ const ensureSdkReady = (): SealosSdkClient | null => {
 }
 
 const getLocalSealosSession = async () => {
-  if (!isBrowser) return null
+  if (!isBrowser || !ENABLE_LOCAL_SESSION_FALLBACK) return null
 
   try {
     const response = await fetch('/__agenthub/local-session')

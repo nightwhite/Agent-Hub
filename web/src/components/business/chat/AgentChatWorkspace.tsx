@@ -23,7 +23,6 @@ export function AgentChatWorkspace({
 }: AgentChatWorkspaceProps) {
   const [isComposing, setIsComposing] = useState(false)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
-  const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
     const container = messagesContainerRef.current
@@ -145,22 +144,6 @@ export function AgentChatWorkspace({
                   if (isComposing || event.nativeEvent.isComposing) return
                   if (event.key !== 'Enter') return
                   if (event.shiftKey || event.metaKey) {
-                    event.preventDefault()
-                    const target = event.currentTarget
-                    const selectionStart = target.selectionStart ?? session.draft.length
-                    const selectionEnd = target.selectionEnd ?? session.draft.length
-                    const nextValue =
-                      session.draft.slice(0, selectionStart) +
-                      '\n' +
-                      session.draft.slice(selectionEnd)
-                    onDraftChange(nextValue)
-                    requestAnimationFrame(() => {
-                      const textarea = composerRef.current
-                      if (!textarea) return
-                      const caret = selectionStart + 1
-                      textarea.selectionStart = caret
-                      textarea.selectionEnd = caret
-                    })
                     return
                   }
                   event.preventDefault()
@@ -168,7 +151,6 @@ export function AgentChatWorkspace({
                   onSend()
                 }}
                 placeholder="输入测试消息..."
-                ref={composerRef}
                 value={session.draft}
               />
               <Button

@@ -28,6 +28,9 @@ import { openAgentTerminalDesktopWindow } from './lib/terminalWindow'
 
 const MOCK_AGENT_ID_PREFIX = 'mock-agent-'
 const ALL_STATUS_FILTERS: AgentListStatusFilter = ['running', 'creating', 'stopped', 'error']
+const ENABLE_MOCK_AGENTS =
+  import.meta.env.DEV &&
+  String(import.meta.env.VITE_ENABLE_MOCK_AGENTS || '').toLowerCase() === 'true'
 
 function isMockAgentItem(item: AgentListItem) {
   return item.id.startsWith(MOCK_AGENT_ID_PREFIX)
@@ -466,7 +469,9 @@ export function AgentsListPage() {
     () =>
       controller.items.length > 0
         ? controller.items
-        : buildMockAgentItems(controller.templates, controller.clusterInfo),
+        : ENABLE_MOCK_AGENTS
+          ? buildMockAgentItems(controller.templates, controller.clusterInfo)
+          : [],
     [controller.clusterInfo, controller.items, controller.templates],
   )
 
@@ -482,7 +487,7 @@ export function AgentsListPage() {
       : previewItems
 
     const statusMatched =
-      statusFilter.length === 4
+      statusFilter.length === ALL_STATUS_FILTERS.length
         ? keywordMatched
         : keywordMatched.filter((item) => statusFilter.includes(item.status))
 

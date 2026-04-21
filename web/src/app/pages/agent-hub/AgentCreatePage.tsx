@@ -111,7 +111,7 @@ export function AgentCreatePage() {
       resizeObserver.disconnect();
       window.removeEventListener("resize", syncHeight);
     };
-  }, [selectedTemplateId, loading, clusterContext, selectedTemplate, blueprint]);
+  }, [selectedTemplateId, loading, clusterContext, selectedTemplate]);
 
   const handleBlueprintChange = (
     field: keyof AgentBlueprint,

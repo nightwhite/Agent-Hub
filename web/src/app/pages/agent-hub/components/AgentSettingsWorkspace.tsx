@@ -284,44 +284,24 @@ export function AgentSettingsWorkspace({
 
   const runtimeDirty = useMemo(
     () =>
-      JSON.stringify({
-        profile: runtimeBlueprint.profile,
-        cpu: runtimeBlueprint.cpu,
-        memory: runtimeBlueprint.memory,
-        storageLimit: runtimeBlueprint.storageLimit,
-      }) !==
-      JSON.stringify({
-        profile: originalBlueprint.profile,
-        cpu: originalBlueprint.cpu,
-        memory: originalBlueprint.memory,
-        storageLimit: originalBlueprint.storageLimit,
-      }),
+      runtimeBlueprint.profile !== originalBlueprint.profile ||
+      runtimeBlueprint.cpu !== originalBlueprint.cpu ||
+      runtimeBlueprint.memory !== originalBlueprint.memory ||
+      runtimeBlueprint.storageLimit !== originalBlueprint.storageLimit,
     [originalBlueprint, runtimeBlueprint],
   );
 
   const settingsDirty = useMemo(
     () =>
-      JSON.stringify({
-        aliasName: settingsBlueprint.aliasName,
-        model: settingsBlueprint.model,
-        modelProvider: settingsBlueprint.modelProvider,
-        modelBaseURL: settingsBlueprint.modelBaseURL,
-        keySource: settingsBlueprint.keySource,
-        settings: agentSettingsFields.map((field) => ({
-          key: field.key,
-          value: readBlueprintSettingValue(settingsBlueprint, field),
-        })),
-      }) !==
-      JSON.stringify({
-        aliasName: originalBlueprint.aliasName,
-        model: originalBlueprint.model,
-        modelProvider: originalBlueprint.modelProvider,
-        modelBaseURL: originalBlueprint.modelBaseURL,
-        keySource: originalBlueprint.keySource,
-        settings: agentSettingsFields.map((field) => ({
-          key: field.key,
-          value: readBlueprintSettingValue(originalBlueprint, field),
-        })),
+      settingsBlueprint.aliasName !== originalBlueprint.aliasName ||
+      settingsBlueprint.model !== originalBlueprint.model ||
+      settingsBlueprint.modelProvider !== originalBlueprint.modelProvider ||
+      settingsBlueprint.modelBaseURL !== originalBlueprint.modelBaseURL ||
+      settingsBlueprint.keySource !== originalBlueprint.keySource ||
+      agentSettingsFields.some((field) => {
+        const current = readBlueprintSettingValue(settingsBlueprint, field);
+        const original = readBlueprintSettingValue(originalBlueprint, field);
+        return current !== original;
       }),
     [agentSettingsFields, originalBlueprint, settingsBlueprint],
   );
