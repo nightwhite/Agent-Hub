@@ -162,18 +162,16 @@ export function AgentTerminalWindowPage() {
 
   return (
     <main className="flex h-screen min-h-screen flex-col bg-[var(--color-bg)]">
-      <header className="flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-3 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]">
+      <header className="flex items-center justify-between gap-4 border-b border-[var(--color-border)] bg-white px-5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.08)]">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-zinc-950">
+          <div className="flex items-center gap-2 text-[var(--color-text)]">
             <TerminalIcon size={18} />
             <span className="truncate text-sm font-semibold">{displayName}</span>
           </div>
-          <div className="mt-1 truncate text-xs text-zinc-500">
-            {activeItem?.name || activeAgentName || '等待终端目标'}
-          </div>
+          <div className="mt-1 truncate text-xs text-[var(--color-muted)]">{activeItem?.name || activeAgentName || '等待终端目标'}</div>
         </div>
         {loading ? (
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
             <LoaderCircle className="animate-spin" size={14} />
             加载中
           </div>
@@ -181,9 +179,7 @@ export function AgentTerminalWindowPage() {
       </header>
 
       {message && !terminalSession ? (
-        <div className="border-b border-rose-200 bg-rose-50 px-5 py-2 text-sm text-rose-700">
-          {message}
-        </div>
+        <div className="border-b border-rose-200 bg-rose-50 px-5 py-2 text-sm text-rose-700">{message}</div>
       ) : null}
 
       <div className="min-h-0 flex-1 p-3">

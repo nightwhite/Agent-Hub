@@ -1,5 +1,4 @@
 import {
-  ArrowLeft,
   Bot,
   Globe,
   PauseCircle,
@@ -7,26 +6,24 @@ import {
   Settings,
   Terminal,
   Trash2,
-} from "lucide-react";
-import type { ReactNode } from "react";
-import { Button } from "../../../../components/ui/Button";
-import type { AgentListItem } from "../../../../domains/agents/types";
+} from 'lucide-react'
+import type { ReactNode } from 'react'
+import { Button } from '../../../../components/ui/Button'
+import type { AgentListItem } from '../../../../domains/agents/types'
 
 interface AgentDetailHeaderProps {
-  item: AgentListItem;
-  onBack: () => void;
-  onOpenTerminalWindow: () => void;
-  onDelete: () => void;
-  onOpenChat: () => void;
-  onOpenConfig: () => void;
-  onOpenWebUI: () => void;
-  onToggleState: () => void;
-  extraActions?: ReactNode;
+  item: AgentListItem
+  onOpenTerminalWindow: () => void
+  onDelete: () => void
+  onOpenChat: () => void
+  onOpenConfig: () => void
+  onOpenWebUI: () => void
+  onToggleState: () => void
+  extraActions?: ReactNode
 }
 
 export function AgentDetailHeader({
   item,
-  onBack,
   onOpenTerminalWindow,
   onDelete,
   onOpenChat,
@@ -35,74 +32,63 @@ export function AgentDetailHeader({
   onToggleState,
   extraActions,
 }: AgentDetailHeaderProps) {
-  const toggleLabel = item.status === "running" ? "暂停" : "启动";
-  const toggleDisabled = item.status === "creating";
-  const toggleTitle = toggleDisabled
-    ? "实例创建中，暂时不可切换状态"
-    : toggleLabel;
+  const toggleLabel = item.status === 'running' ? '暂停' : '启动'
+  const toggleDisabled = item.status === 'creating'
+  const toggleTitle = toggleDisabled ? '实例创建中，暂时不可切换状态' : toggleLabel
   const primaryAction = item.chatAvailable
     ? {
-        label: "对话",
+        label: '对话',
         icon: Bot,
         onClick: onOpenChat,
         disabled: false,
-        title: "对话",
+        title: '对话',
       }
     : item.webUIAvailable
       ? {
-          label: "Web UI",
+          label: 'Web UI',
           icon: Globe,
           onClick: onOpenWebUI,
           disabled: false,
-          title: "打开 Web UI 工作台",
+          title: '打开 Web UI 工作台',
         }
       : item.terminalAvailable
         ? {
-            label: "终端",
+            label: '终端',
             icon: Terminal,
             onClick: onOpenTerminalWindow,
             disabled: false,
-            title: "打开终端窗口",
+            title: '打开终端窗口',
           }
         : {
-            label: "设置",
+            label: '设置',
             icon: Settings,
             onClick: onOpenConfig,
             disabled: false,
-        title: "打开设置",
-          };
+            title: '打开设置',
+          }
 
   return (
-    <header className="flex w-full items-center justify-between gap-5 bg-[#fafafa] py-8">
+    <header className="flex w-full flex-col gap-4 py-6 lg:flex-row lg:items-center lg:justify-between">
       <div className="flex min-w-0 flex-col gap-3">
-        <button
-          className="flex w-fit cursor-pointer items-center gap-2 text-zinc-500 transition hover:text-zinc-950"
-          onClick={onBack}
-          title="返回 Agent 列表"
-          type="button"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span className="text-sm font-medium">返回 Agent 列表</span>
-        </button>
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border-[0.5px] border-zinc-200 bg-zinc-50/90">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-[var(--color-border)] bg-[#f7f9fd]">
             <img
               alt={`${item.template.name} logo`}
               className="h-9 w-9 object-cover"
               src={item.template.logo}
             />
           </div>
-          <div className="truncate text-[24px]/8 font-semibold tracking-[-0.02em] text-[#0a0a0a]">
+          <div className="truncate text-[28px]/8 font-extrabold tracking-[-0.03em] text-[#151b2d]">
             {item.aliasName || item.name}
           </div>
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+      <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 lg:w-auto lg:flex-nowrap lg:justify-end">
         {extraActions}
 
         <Button
-          className="h-10 w-10 rounded-[8px] bg-white px-0 text-zinc-500 shadow-none hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+          className="h-10 w-10 rounded-[10px] border-[#fecaca] bg-[#fff1f2] px-0 text-[#dc2626] shadow-none hover:bg-[#ffe4e6]"
           onClick={onDelete}
           size="md"
           title="删除"
@@ -113,22 +99,18 @@ export function AgentDetailHeader({
         </Button>
 
         <Button
-          className="h-10 w-10 rounded-[8px] bg-white px-0 text-zinc-500 shadow-none hover:text-zinc-900"
+          className="h-10 w-10 rounded-[10px] bg-white px-0 text-[#5e6b80] shadow-none hover:text-[var(--color-brand)]"
           disabled={!item.terminalAvailable}
           onClick={onOpenTerminalWindow}
           size="md"
-          title={
-            item.terminalAvailable
-              ? "打开终端窗口"
-              : item.terminalDisabledReason || "终端不可用"
-          }
+          title={item.terminalAvailable ? '打开终端窗口' : item.terminalDisabledReason || '终端不可用'}
           type="button"
           variant="secondary"
         >
           <Terminal className="h-4 w-4" />
         </Button>
 
-        <div className="flex items-center overflow-hidden rounded-[10px] border-[0.5px] border-zinc-200 bg-white shadow-none">
+        <div className="flex items-center overflow-hidden rounded-[10px] border border-[var(--color-border)] bg-white shadow-none">
           <Button
             className="h-10 min-w-[88px] rounded-none border-0 px-4 text-[14px] leading-5 shadow-none"
             disabled={toggleDisabled}
@@ -138,15 +120,11 @@ export function AgentDetailHeader({
             type="button"
             variant="secondary"
           >
-            {item.status === "running" ? (
-              <PauseCircle className="h-4 w-4" />
-            ) : (
-              <PlayCircle className="h-4 w-4" />
-            )}
+            {item.status === 'running' ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
             {toggleLabel}
           </Button>
           <Button
-            className="h-10 min-w-[88px] rounded-none border-0 border-l border-zinc-200 px-4 text-[14px] leading-5 shadow-none"
+            className="h-10 min-w-[88px] rounded-none border-0 border-l border-[var(--color-border)] px-4 text-[14px] leading-5 shadow-none"
             onClick={onOpenConfig}
             size="md"
             title="配置"
@@ -159,7 +137,7 @@ export function AgentDetailHeader({
         </div>
 
         <Button
-          className="h-10 min-w-[88px] rounded-[8px] bg-[#18181b] px-4 text-[14px] leading-5 font-medium text-white shadow-none hover:bg-black"
+          className="h-10 min-w-[88px] rounded-[10px] px-4 text-[14px] leading-5 font-semibold text-white"
           disabled={primaryAction.disabled}
           onClick={primaryAction.onClick}
           size="md"
@@ -172,5 +150,5 @@ export function AgentDetailHeader({
         </Button>
       </div>
     </header>
-  );
+  )
 }

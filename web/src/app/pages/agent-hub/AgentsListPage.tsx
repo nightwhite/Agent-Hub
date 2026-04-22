@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DeleteAgentModal } from '../../../components/business/agents/DeleteAgentModal'
 import {
   AgentInstancesTable,
@@ -16,7 +16,6 @@ import type {
   ClusterInfo,
 } from '../../../domains/agents/types'
 import { AgentCapabilityOverlays } from './components/AgentCapabilityOverlays'
-import { AgentHubHeader } from './components/AgentHubHeader'
 import { AgentHubOverview } from './components/AgentHubOverview'
 import { AgentListHeroEmpty } from './components/AgentListHeroEmpty'
 import { AgentWorkspaceShell } from './components/AgentWorkspaceShell'
@@ -431,12 +430,26 @@ function buildMockAgentItems(
 
 export function AgentsListPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const controller = useAgentHub()
-  const [keyword, setKeyword] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<AgentListItem | null>(null)
   const [sortKey, setSortKey] = useState<AgentListSortKey>('updatedAt')
   const [sortOrder, setSortOrder] = useState<AgentListSortOrder>('desc')
   const [statusFilter, setStatusFilter] = useState<AgentListStatusFilter>(ALL_STATUS_FILTERS)
+  const keyword = String(searchParams.get('q') || '')
+
+  const setKeyword = useCallback(
+    (value: string) => {
+      const next = new URLSearchParams(searchParams)
+      if (value.trim()) {
+        next.set('q', value)
+      } else {
+        next.delete('q')
+      }
+      setSearchParams(next, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
 
   const { chatSession, closeChat, sendChatMessage, setChatDraft } =
     useAgentChat({
@@ -588,17 +601,8 @@ export function AgentsListPage() {
 
   return (
     <AgentWorkspaceShell>
-      <div className="flex h-full w-full min-w-0 flex-col bg-[#fafafa]">
-        <AgentHubHeader
-          keyword={keyword}
-          namespace={controller.clusterInfo?.namespace}
-          onBrowseTemplates={() => navigate('/agents/templates')}
-          onCreate={() => navigate('/agents/templates')}
-          onKeywordChange={setKeyword}
-          operator={controller.clusterInfo?.operator || 'Sealos'}
-        />
-
-        <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-0 lg:px-12">
+      <div className="flex h-full w-full min-w-0 flex-col">
+        <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-0 pt-6 lg:px-12">
           <AgentHubOverview
             message={controller.message}
             onClose={() => controller.setMessage("")}

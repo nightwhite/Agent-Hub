@@ -1,59 +1,41 @@
-import { LayoutTemplate, Plus } from 'lucide-react'
+import { LayoutTemplate } from 'lucide-react'
 import { Button } from '../../../../components/ui/Button'
-import { SearchField } from '../../../../components/ui/SearchField'
 import { APP_NAME } from '../../../../branding'
 
 interface AgentHubHeaderProps {
-  keyword: string
   operator: string
   namespace?: string
   onBrowseTemplates?: () => void
-  onCreate: () => void
-  onKeywordChange: (value: string) => void
 }
 
 export function AgentHubHeader({
-  keyword,
+  operator,
+  namespace,
   onBrowseTemplates,
-  onCreate,
-  onKeywordChange,
 }: AgentHubHeaderProps) {
   return (
-    <header className="flex flex-shrink-0 flex-col bg-[#fafafa] px-6 py-8 lg:px-12">
-      <div className="flex w-full flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="truncate text-[24px]/8 font-semibold tracking-[-0.02em] text-[#0a0a0a]">
-            {APP_NAME}
-          </div>
+    <header className="flex flex-shrink-0 flex-col gap-5 px-6 py-6 lg:px-12">
+      <div className="min-w-0">
+        <div className="truncate text-[28px]/8 font-extrabold tracking-[-0.03em] text-[#151b2d]">{APP_NAME}</div>
+        <div className="mt-2 text-sm text-[#6d778a]">
+          管理和监控你的 24/7 AI 工作者，持续为你处理任务。
+          {namespace ? ` 当前命名空间：${namespace}` : ''}
+          {operator ? ` · ${operator}` : ''}
         </div>
+      </div>
 
-        <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto sm:flex-nowrap">
-          <SearchField
-            className="w-full sm:w-[280px] [&_input]:h-10 [&_input]:rounded-[10px] [&_input]:border-zinc-200 [&_input]:bg-white [&_input]:px-4 [&_input]:pl-10 [&_input]:text-[14px] [&_input]:leading-5 [&_input]:shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
-            onChange={(event) => onKeywordChange(event.target.value)}
-            placeholder="搜索别名或实例名"
-            value={keyword}
-          />
-          {onBrowseTemplates ? (
-            <Button
-              className="h-10 min-w-[124px] gap-2 rounded-[8px] border-zinc-200 px-4 text-[14px] leading-5 font-medium text-zinc-900 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
-              onClick={onBrowseTemplates}
-              size="md"
-              variant="secondary"
-            >
-              <LayoutTemplate className="h-4 w-4" />
-              浏览模板
-            </Button>
-          ) : null}
+      <div className="flex w-full flex-wrap items-center justify-end gap-3">
+        {onBrowseTemplates ? (
           <Button
-            className="h-10 min-w-[126px] gap-2 rounded-[8px] bg-[#18181b] px-4 text-[14px] leading-5 font-medium text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-black"
-            leading={<Plus className="h-4 w-4" />}
-            onClick={onCreate}
+            className="h-10 min-w-[124px] gap-2 rounded-[10px] px-4"
+            onClick={onBrowseTemplates}
             size="md"
+            variant="secondary"
           >
-            创建 Agent
+            <LayoutTemplate className="h-4 w-4" />
+            浏览模板
           </Button>
-        </div>
+        ) : null}
       </div>
     </header>
   )

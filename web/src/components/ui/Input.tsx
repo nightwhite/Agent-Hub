@@ -32,7 +32,7 @@ export function Input({
         {...props}
       />
       {error ? <span className="text-xs text-rose-600">{error}</span> : null}
-      {!error && hint ? <span className="text-[11px]/5 text-zinc-500">{hint}</span> : null}
+      {!error && hint ? <span className="text-[11px]/5 text-[#8a94a6]">{hint}</span> : null}
     </label>
   )
 }

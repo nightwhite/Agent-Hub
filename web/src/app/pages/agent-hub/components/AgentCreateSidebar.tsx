@@ -140,7 +140,7 @@ export function AgentCreateSidebar({
   }
 
   return (
-    <aside className="grid h-full w-full gap-4 min-[760px]:grid-cols-2 min-[980px]:grid-cols-1">
+    <aside className="grid h-full w-full gap-4">
       <SidebarSection
         description="这里汇总当前创建单里的核心信息，提交前在这一张卡里快速确认就可以。"
         title="摘要卡片"

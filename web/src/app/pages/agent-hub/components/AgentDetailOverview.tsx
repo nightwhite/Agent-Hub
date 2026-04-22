@@ -679,7 +679,7 @@ export function AgentDetailOverview({
 
   return (
     <>
-      <div className="grid w-full min-w-0 gap-2.5 pr-1 pb-1 xl:grid-cols-[minmax(390px,0.88fr)_minmax(0,1.12fr)]">
+      <div className="grid w-full min-w-0 gap-2.5 pr-1 pb-1 min-[1180px]:grid-cols-[minmax(360px,0.92fr)_minmax(380px,1.08fr)]">
         <BasicInfoCard internalURL={internalURL} item={item} onErrorMessage={onErrorMessage} />
 
         <div className="flex min-w-0 flex-col gap-2.5 px-0.5">

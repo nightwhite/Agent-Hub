@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { AgentConfigForm } from "../../../components/business/agents/AgentConfigForm";
 import { Button } from "../../../components/ui/Button";
 import { AgentCreateSidebar } from "./components/AgentCreateSidebar";
-import { AgentCreateHeader } from "./components/AgentCreateHeader";
 import { AgentHubOverview } from "./components/AgentHubOverview";
 import { AgentWorkspaceShell } from "./components/AgentWorkspaceShell";
 import { useAgentHub } from "./hooks/AgentHubControllerContext";
@@ -147,52 +146,37 @@ export function AgentCreatePage() {
   const missingClusterContext = !loading && !clusterContext;
 
   return (
-    <AgentWorkspaceShell>
-      <div className="flex h-full min-w-0 flex-col bg-[#fafafa]">
-        <AgentCreateHeader
-          description={
-            selectedTemplate
-              ? `按 ${selectedTemplate.name} 模板创建新的 Agent 实例`
-              : undefined
-          }
-          onBack={() => navigate("/agents/templates")}
-          title={
-            selectedTemplate
-              ? `创建 ${selectedTemplate.shortName}`
-              : "创建 Agent"
-          }
-          actions={
-            <>
-              <Button
-                className="h-10 min-w-[124px] rounded-[8px] border-zinc-200 px-4 text-[14px] leading-5 font-medium text-zinc-900 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
-                onClick={() => navigate("/agents/templates")}
-                size="md"
-                variant="secondary"
-              >
-                更换模板
-              </Button>
-              <Button
-                className="h-10 min-w-[124px] rounded-[8px] bg-[#18181b] px-4 text-[14px] leading-5 font-medium text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-black"
-                disabled={
-                  submitting || waitingForBlueprint || missingClusterContext
-                }
-                onClick={handleSubmit}
-                size="md"
-              >
-                {submitting ? "部署中..." : "确认部署"}
-              </Button>
-            </>
-          }
-        />
-
+    <AgentWorkspaceShell
+      headerActions={
+        <>
+          <Button
+            className="h-10 min-w-[124px] rounded-[8px] border-zinc-200 px-4 text-[14px] leading-5 font-medium text-zinc-900 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+            onClick={() => navigate("/agents/templates")}
+            size="md"
+            variant="secondary"
+          >
+            更换模板
+          </Button>
+          <Button
+            className="h-10 min-w-[124px] rounded-[8px] bg-[#18181b] px-4 text-[14px] leading-5 font-medium text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-black"
+            disabled={submitting || waitingForBlueprint || missingClusterContext}
+            onClick={handleSubmit}
+            size="md"
+          >
+            {submitting ? "部署中..." : "确认部署"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex h-full min-w-0 flex-col">
         <main className="flex min-h-0 flex-1 overflow-y-auto">
-          <div className="flex w-full min-h-full flex-col gap-5 px-4 pb-12 sm:px-6 sm:pb-14 lg:px-12 lg:pb-10">
+          <div className="flex w-full min-h-full flex-col gap-5 px-4 pb-12 pt-5 sm:px-6 sm:pb-14 lg:px-12 lg:pb-10">
             <AgentHubOverview message={message} onClose={() => setMessage("")} />
 
-            <div className="grid w-full gap-3 xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="grid w-full gap-3 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]">
               {selectedTemplate ? (
                 <div
-                  className="min-w-0 xl:w-[300px] 2xl:w-[320px]"
+                  className="min-w-0 lg:w-[280px] xl:w-[300px] 2xl:w-[320px]"
                   style={
                     syncedSidebarHeight
                       ? { height: `${syncedSidebarHeight}px` }
@@ -210,7 +194,7 @@ export function AgentCreatePage() {
 
               <section
                 ref={mainColumnRef}
-                className="min-w-0 w-full max-w-[920px] justify-self-center xl:h-full xl:max-w-none xl:justify-self-auto"
+                className="min-w-0 w-full max-w-[820px] justify-self-center lg:h-full lg:max-w-none lg:justify-self-auto"
               >
                 {waitingForBlueprint ? (
                   <div className="workbench-card-strong flex min-h-[420px] flex-col items-center justify-center px-6 py-8 text-center">

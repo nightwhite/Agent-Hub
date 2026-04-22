@@ -652,10 +652,9 @@ export function AgentDetailPage() {
 
   return (
     <AgentWorkspaceShell>
-      <div className="flex h-full min-w-0 flex-col bg-[#fafafa] px-6 lg:px-12">
+      <div className="flex h-full min-w-0 flex-col px-6 lg:px-12">
         <AgentDetailHeader
           item={item}
-          onBack={() => navigate("/agents")}
           onDelete={() => {
             if (isMockAgentItem(item)) {
               return;
@@ -682,7 +681,7 @@ export function AgentDetailPage() {
             onClose={() => controller.setMessage("")}
           />
 
-          <div className="flex min-h-0 min-w-0 flex-1 gap-5 overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-hidden min-[860px]:flex-row">
             <AgentDetailSidebar
               currentTab={currentTab}
               item={item}

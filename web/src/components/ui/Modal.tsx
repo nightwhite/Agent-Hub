@@ -23,16 +23,18 @@ export function Modal({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-      <div className={`flex max-h-[88vh] w-full flex-col overflow-hidden rounded-[28px] border border-white/60 bg-white shadow-[0_32px_96px_rgba(15,23,42,0.18)] ${widthClassName}`}>
-        <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.62)] p-4 backdrop-blur-[1.5px]">
+      <div
+        className={`flex max-h-[88vh] w-full flex-col overflow-hidden rounded-[18px] border border-white/70 bg-white shadow-[0_34px_90px_rgba(15,23,42,0.24),0_10px_26px_rgba(15,23,42,0.12)] ${widthClassName}`}
+      >
+        <div className="flex items-start justify-between border-b border-[var(--color-border)] px-6 py-5">
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
-            {description ? <p className="text-sm text-slate-500">{description}</p> : null}
+            <h2 className="text-lg font-semibold text-[var(--color-text)]">{title}</h2>
+            {description ? <p className="text-sm text-[var(--color-muted)]">{description}</p> : null}
           </div>
           <button
             aria-label="关闭"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] text-[#5c6678] transition hover:bg-[#f3f6fb] hover:text-[#111827]"
             onClick={onClose}
             type="button"
           >
@@ -40,7 +42,11 @@ export function Modal({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
-        {footer ? <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">{footer}</div> : null}
+        {footer ? (
+          <div className="flex flex-wrap justify-end gap-3 border-t border-[var(--color-border)] bg-[#fafcff] px-6 py-4">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>
   )
