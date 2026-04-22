@@ -150,7 +150,7 @@ export function AgentCreatePage() {
       headerActions={
         <>
           <Button
-            className="h-10 min-w-[124px] rounded-[8px] border-zinc-200 px-4 text-[14px] leading-5 font-medium text-zinc-900 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+            className="min-w-[124px]"
             onClick={() => navigate("/agents/templates")}
             size="md"
             variant="secondary"
@@ -158,10 +158,11 @@ export function AgentCreatePage() {
             更换模板
           </Button>
           <Button
-            className="h-10 min-w-[124px] rounded-[8px] bg-[#18181b] px-4 text-[14px] leading-5 font-medium text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-black"
+            className="min-w-[124px]"
             disabled={submitting || waitingForBlueprint || missingClusterContext}
             onClick={handleSubmit}
             size="md"
+            variant="primary"
           >
             {submitting ? "部署中..." : "确认部署"}
           </Button>

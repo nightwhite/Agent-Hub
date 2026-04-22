@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DeleteAgentModal } from '../../../components/business/agents/DeleteAgentModal'
 import {
@@ -438,19 +438,6 @@ export function AgentsListPage() {
   const [statusFilter, setStatusFilter] = useState<AgentListStatusFilter>(ALL_STATUS_FILTERS)
   const keyword = String(searchParams.get('q') || '')
 
-  const setKeyword = useCallback(
-    (value: string) => {
-      const next = new URLSearchParams(searchParams)
-      if (value.trim()) {
-        next.set('q', value)
-      } else {
-        next.delete('q')
-      }
-      setSearchParams(next, { replace: true })
-    },
-    [searchParams, setSearchParams],
-  )
-
   const { chatSession, closeChat, sendChatMessage, setChatDraft } =
     useAgentChat({
       clusterContext: controller.clusterContext,
@@ -616,7 +603,9 @@ export function AgentsListPage() {
             <AgentListHeroEmpty
               mode="search"
               onAction={() => {
-                setKeyword('')
+                const next = new URLSearchParams(searchParams)
+                next.delete('q')
+                setSearchParams(next, { replace: true })
                 setStatusFilter(ALL_STATUS_FILTERS)
               }}
             />

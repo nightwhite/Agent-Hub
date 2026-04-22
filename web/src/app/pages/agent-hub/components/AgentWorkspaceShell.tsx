@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react'
 import { useMemo } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { APP_NAME } from '../../../../branding'
+import { Button } from '../../../../components/ui/Button'
+import { SearchField } from '../../../../components/ui/SearchField'
 import { cn } from '../../../../lib/format'
 
 interface AgentWorkspaceShellProps {
@@ -103,20 +106,21 @@ export function AgentWorkspaceShell({
     if (view === 'agents') {
       return (
         <div className="flex shrink-0 items-center gap-2.5">
-          <button
-            className="inline-flex h-10 items-center justify-center rounded-[11px] border border-[var(--color-border)] bg-white px-4 text-[14px] font-semibold text-[#344055] hover:border-[#d7deea] hover:bg-[#fbfcff]"
+          <Button
             onClick={() => navigate('/agents/templates')}
-            type="button"
+            size="md"
+            variant="secondary"
           >
             浏览模板
-          </button>
-          <button
-            className="inline-flex h-10 items-center justify-center rounded-[11px] border border-[var(--color-brand)] bg-[var(--color-brand)] px-4 text-[14px] font-semibold text-white shadow-[0_10px_20px_rgba(37,99,255,0.18)] hover:bg-[var(--color-brand-hover)]"
+          </Button>
+          <Button
+            className="shadow-[0_10px_20px_rgba(37,99,255,0.18)]"
             onClick={() => navigate('/agents/templates')}
-            type="button"
+            size="md"
+            variant="primary"
           >
             ＋ 创建 Agent
-          </button>
+          </Button>
         </div>
       )
     }
@@ -150,27 +154,26 @@ export function AgentWorkspaceShell({
           {showRightTools ? (
             <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-2 md:w-auto md:flex-nowrap">
               {showHeaderSearch ? (
-                <label className="flex h-10 w-full min-w-[220px] items-center gap-2 overflow-hidden rounded-[11px] border border-[var(--color-border)] bg-white px-3 text-[#667085] sm:w-[280px] lg:w-[360px]">
-                  <span className="text-[#98a2b3]">⌕</span>
-                  <input
-                    className="min-w-0 flex-1 border-0 bg-transparent text-[#1f2937] outline-none"
-                    onChange={(event) => handleHeaderSearchChange(event.target.value)}
-                    placeholder={headerSearchPlaceholder}
-                    type="text"
-                    value={headerSearchValue}
-                  />
-                </label>
+                <SearchField
+                  aria-label={headerSearchPlaceholder}
+                  className="w-full min-w-[220px] sm:w-[280px] lg:w-[360px]"
+                  onChange={(event) => handleHeaderSearchChange(event.target.value)}
+                  placeholder={headerSearchPlaceholder}
+                  value={headerSearchValue}
+                />
               ) : null}
 
               {showBack ? (
-                <button
+                <Button
                   aria-label="返回"
-                  className="inline-flex h-9 w-9 items-center justify-center border-0 bg-transparent p-0 text-[20px] leading-none font-semibold text-[#4b5565] hover:text-[var(--color-brand)]"
+                  className="h-9 w-9 p-0"
+                  leading={<ArrowLeft className="h-4 w-4" />}
                   onClick={() => navigate(backTarget)}
-                  type="button"
+                  size="sm"
+                  variant="ghost"
                 >
-                  ↩
-                </button>
+                  <span className="sr-only">返回</span>
+                </Button>
               ) : null}
 
               {showCreateStepper ? (
