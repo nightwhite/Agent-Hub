@@ -1,5 +1,6 @@
 import { buildAuthorizedRequestOptions } from "./shared";
 import type {
+  AgentConsoleBootstrap,
   AgentContract,
   AgentHubRegion,
   AgentSSHAccessPayload,
@@ -200,6 +201,21 @@ export const getAgent = async (
       },
     ),
     "Agent 详情响应为空。",
+  );
+
+export const getAgentConsole = async (
+  agentName: string,
+  clusterContext: ClusterContext,
+): Promise<AgentConsoleBootstrap> =>
+  expectData(
+    await requestBackend<AgentConsoleBootstrap>(
+      `/api/v1/agents/${encodeURIComponent(agentName)}/console`,
+      clusterContext,
+      {
+        method: "GET",
+      },
+    ),
+    "Agent 控制台响应为空。",
   );
 
 export const createAgent = async (

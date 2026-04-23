@@ -79,6 +79,13 @@ Agent Hub 前端通过 `backend/` 暴露的统一 API 与 Sealos 集群交互。
 #### `GET /api/v1/agents/:agentName/ws`
 - 说明：终端、日志、文件操作入口
 - 鉴权：首条消息发送 `auth`
+- 协议：`Stream V2 Binary`（20-byte header + requestId/sessionId/meta/payload）
+- 帧版本：`version = 2`，非法版本与非法长度会被后端拒绝并返回 `error`
+- 关键消息：
+  - `terminal.output` / `log.chunk`：高压场景下允许最旧数据淘汰；若发生淘汰，下一条同流消息会携带 `data.dropped=true`、`data.droppedCount=<n>`
+  - `file.result`：`list/read/download/write/delete/mkdir/upload.*` 统一返回
+  - `error`：统一错误语义（如 `auth_required`、`invalid_message_frame`、`file_*_failed`）
+- 优先级策略：控制消息优先于流式输出消息，确保连接控制与交互输入不被高频输出饿死
 
 ## 发布约束
 

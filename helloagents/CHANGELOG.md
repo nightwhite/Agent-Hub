@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### 变更
+- Agent Console Stream V2 全链路升级：WebSocket 改为 Binary V2 帧协议；后端新增单写有界队列与流式高压淘汰（附 `dropped/droppedCount` 标记）；前端终端优先启用 WebGL renderer + burst 调度，文件预览支持 `fromCache/stale` 反馈与后台刷新。
 - 补齐 Agent Hub 的通用基础能力主链路：模板目录新增 `workspaces + settings.binding`，前后端统一按 schema 驱动创建与设置更新，不再只认 Hermes 的硬编码模型字段。
 - 详情页工作区升级为模板显式声明能力：侧边栏不再硬编码 `overview / terminal / files / settings`，并新增内嵌 `Web UI` 工作区。
 - Hermes 模板移除没有真实写入链路的 IM 占位字段，避免继续把 placeholder 当成通用能力。

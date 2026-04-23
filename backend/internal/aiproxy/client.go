@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -29,6 +30,16 @@ type APIError struct {
 	Status  int
 	Message string
 	Payload any
+}
+
+var tokenSearchPaths = []string{
+	"/api/v2alpha/tokens",
+	"/api/v2alpha/token/search",
+}
+
+var tokenCreatePaths = []string{
+	"/api/v2alpha/tokens",
+	"/api/v2alpha/token",
 }
 
 func (e *APIError) Error() string {
@@ -83,7 +94,7 @@ func (c *Client) EnsureToken(ctx context.Context, authorization, name string) (T
 }
 
 func (c *Client) SearchTokenByName(ctx context.Context, authorization, name string) (Token, bool, error) {
-	payload, err := c.doJSON(ctx, http.MethodGet, "/api/v2alpha/token/search", authorization, url.Values{
+	payload, err := c.doJSONWithFallback(ctx, http.MethodGet, tokenSearchPaths, authorization, url.Values{
 		"name": []string{name},
 	}, nil)
 	if err != nil {
@@ -95,7 +106,7 @@ func (c *Client) SearchTokenByName(ctx context.Context, authorization, name stri
 }
 
 func (c *Client) CreateToken(ctx context.Context, authorization, name string) (Token, error) {
-	payload, err := c.doJSON(ctx, http.MethodPost, "/api/v2alpha/token", authorization, nil, map[string]any{
+	payload, err := c.doJSONWithFallback(ctx, http.MethodPost, tokenCreatePaths, authorization, nil, map[string]any{
 		"name": name,
 	})
 	if err != nil {
@@ -124,7 +135,72 @@ func (c *Client) CreateToken(ctx context.Context, authorization, name string) (T
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path, authorization string, query url.Values, body any) (any, error) {
-	requestURL := c.baseURL.ResolveReference(&url.URL{Path: path})
+	return c.doJSONToBaseURL(ctx, c.baseURL, method, path, authorization, query, body)
+}
+
+func (c *Client) doJSONWithFallback(ctx context.Context, method string, paths []string, authorization string, query url.Values, body any) (any, error) {
+	if len(paths) == 0 {
+		return nil, &APIError{
+			Status:  http.StatusBadRequest,
+			Message: "aiproxy request paths are empty",
+		}
+	}
+
+	bases := c.candidateBaseURLs()
+	var attempted []string
+	var lastStatus int
+	var lastMessage string
+
+	for _, base := range bases {
+		for _, path := range paths {
+			requestURL := resolveRequestURL(base, path, query)
+			payload, err := c.doJSONToBaseURL(ctx, base, method, path, authorization, query, body)
+			if err == nil {
+				return payload, nil
+			}
+
+			apiErr, ok := err.(*APIError)
+			if !ok || !isRouteNotFound(apiErr) {
+				return nil, err
+			}
+
+			attempted = append(attempted, requestURL)
+			lastStatus = apiErr.Status
+			lastMessage = apiErr.Message
+		}
+	}
+
+	if len(attempted) == 0 {
+		return nil, &APIError{
+			Status:  http.StatusBadGateway,
+			Message: "aiproxy request failed and no fallback endpoint was attempted",
+		}
+	}
+
+	if lastStatus == 0 {
+		lastStatus = http.StatusNotFound
+	}
+	if strings.TrimSpace(lastMessage) == "" {
+		lastMessage = "endpoint not found"
+	}
+
+	return nil, &APIError{
+		Status: lastStatus,
+		Message: fmt.Sprintf(
+			"aiproxy endpoint not found after trying %d candidate(s): %s (last error: %s)",
+			len(attempted),
+			strings.Join(attempted, ", "),
+			lastMessage,
+		),
+		Payload: map[string]any{
+			"attemptedURLs": attempted,
+			"lastError":     lastMessage,
+		},
+	}
+}
+
+func (c *Client) doJSONToBaseURL(ctx context.Context, base *url.URL, method, path, authorization string, query url.Values, body any) (any, error) {
+	requestURL := base.ResolveReference(&url.URL{Path: path})
 	if len(query) > 0 {
 		requestURL.RawQuery = query.Encode()
 	}
@@ -181,6 +257,102 @@ func (c *Client) doJSON(ctx context.Context, method, path, authorization string,
 	return payload, nil
 }
 
+func (c *Client) candidateBaseURLs() []*url.URL {
+	primary := cloneURL(c.baseURL)
+	if primary == nil {
+		return nil
+	}
+
+	candidates := []*url.URL{primary}
+	if alternate := alternateAIProxyBaseURL(primary); alternate != nil {
+		candidates = append(candidates, alternate)
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]*url.URL, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == nil {
+			continue
+		}
+		key := strings.TrimSpace(candidate.String())
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, candidate)
+	}
+
+	return unique
+}
+
+func cloneURL(source *url.URL) *url.URL {
+	if source == nil {
+		return nil
+	}
+	copied := *source
+	return &copied
+}
+
+func alternateAIProxyBaseURL(base *url.URL) *url.URL {
+	if base == nil {
+		return nil
+	}
+
+	host := strings.TrimSpace(base.Hostname())
+	if host == "" {
+		return nil
+	}
+
+	var alternateHost string
+	switch {
+	case strings.HasPrefix(host, "aiproxy-web."):
+		alternateHost = strings.TrimPrefix(host, "aiproxy-web.")
+		alternateHost = "aiproxy." + alternateHost
+	case strings.HasPrefix(host, "aiproxy."):
+		alternateHost = strings.TrimPrefix(host, "aiproxy.")
+		alternateHost = "aiproxy-web." + alternateHost
+	default:
+		return nil
+	}
+
+	if strings.EqualFold(host, alternateHost) {
+		return nil
+	}
+
+	copied := cloneURL(base)
+	if copied == nil {
+		return nil
+	}
+	if port := strings.TrimSpace(base.Port()); port != "" {
+		copied.Host = net.JoinHostPort(alternateHost, port)
+	} else {
+		copied.Host = alternateHost
+	}
+
+	return copied
+}
+
+func resolveRequestURL(base *url.URL, path string, query url.Values) string {
+	if base == nil {
+		return path
+	}
+	requestURL := base.ResolveReference(&url.URL{Path: path})
+	if len(query) > 0 {
+		requestURL.RawQuery = query.Encode()
+	}
+	return requestURL.String()
+}
+
+func isRouteNotFound(err *APIError) bool {
+	if err == nil {
+		return false
+	}
+	return err.Status == http.StatusNotFound
+}
+
 func parseResponseBody(raw []byte) any {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
@@ -224,8 +396,16 @@ func messageFromPayload(payload any, fallback string) string {
 			}
 		}
 	case string:
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			lowered := strings.ToLower(trimmed)
+			if strings.HasPrefix(lowered, "<!doctype html") || strings.HasPrefix(lowered, "<html") {
+				return "upstream returned HTML response body"
+			}
+			if len(trimmed) > 512 {
+				return trimmed[:512] + "..."
+			}
+			return trimmed
 		}
 	}
 

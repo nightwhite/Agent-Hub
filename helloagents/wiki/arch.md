@@ -44,6 +44,9 @@ sequenceDiagram
 - `settings` 字段新增 binding 语义：模板可显式声明某个字段写入 `agent built-in / env / annotation / derived`，创建与更新统一走同一份 schema 映射。
 - SSH / IDE 接入走按需链路：列表 contract 只暴露入口能力，真正的私钥、token、config host 仅通过 `/api/v1/agents/:agentName/access/ssh` 返回。
 - 发布顺序固定为“后端先发、前端后发、模板目录与知识库最后同步”，不保留旧 DTO 过渡窗口。
+- Agent Console WS 链路升级为 Stream V2：统一二进制帧，后端单写协程消费有界队列，`terminal.output/log.chunk` 在高压下优先丢弃最旧片段并下发 `dropped + droppedCount` 标记，保证控制消息与输入交互优先。
+- 终端渲染链路采用 `normal/burst` 双模式调度，前端优先启用 WebGL renderer（失败自动回退），并保留 Tab 切换后终端实例持续驻留，避免重建导致的抖动。
+- 文件预览链路采用缓存优先策略（TTL=120s），返回 `fromCache/stale` 元信息并在 stale 命中时后台刷新，显著降低重复打开目录与文件的等待时间。
 
 ## 重大架构决策
 
@@ -52,3 +55,4 @@ sequenceDiagram
 | ADR-20260418-01 | Agent Hub 页面改为共享 controller + 导航快照 | 2026-04-18 | ✅已采纳 | web/app/pages/agent-hub | 通过 Provider 与 route state 降低重复请求与状态滞后 |
 | ADR-20260418-02 | Agent Hub 切换到 Template Catalog + Agent Contract V1 | 2026-04-18 | ✅已采纳 | backend/internal/handler, web/src/domains/agents | 模板能力、模型预设、访问平面和动作入口全部显式化，删除前端推断链 |
 | ADR-20260418-03 | Agent Hub 工作区与设置字段改为模板 schema 显式绑定 | 2026-04-18 | ✅已采纳 | backend/internal/agenttemplate, backend/internal/handler, web/src/app/pages/agent-hub | 通过 `workspaces + settings.binding` 让工作区和设置写入都回到模板目录单一路径 |
+| ADR-20260423-01 | Agent Console Stream V2 与高压背压策略 | 2026-04-23 | ✅已采纳 | backend/internal/ws, web/src/app/pages/agent-hub, web/src/components/business/terminal | WS 改为 Binary V2，后端单写队列 + 最旧流式数据淘汰并附带 dropped 标记，前端终端调度与文件缓存链路同步升级 |

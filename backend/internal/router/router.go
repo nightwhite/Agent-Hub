@@ -28,6 +28,7 @@ func New(cfg config.Config) *gin.Engine {
 		v1.GET("/agents", handler.ListAgents)
 		v1.POST("/agents", handler.CreateAgent)
 		v1.GET("/agents/:agentName", handler.GetAgent)
+		v1.GET("/agents/:agentName/console", handler.GetAgentConsole)
 		v1.GET("/agents/:agentName/access/ssh", handler.GetAgentSSHAccess)
 		v1.PATCH("/agents/:agentName/runtime", handler.UpdateAgentRuntime)
 		v1.PATCH("/agents/:agentName/settings", handler.UpdateAgentSettings)

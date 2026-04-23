@@ -34,7 +34,7 @@ import { useAgentChat } from "./hooks/useAgentChat";
 import { useAgentFiles } from "./hooks/useAgentFiles";
 import { applyBlueprintPreset, updateBlueprintField } from "./lib/blueprint";
 import type { AgentDetailRouteState } from "./lib/navigation";
-import { openAgentTerminalDesktopWindow } from "./lib/terminalWindow";
+import { openAgentConsoleDesktopWindow } from "./lib/consoleWindow";
 
 const MOCK_AGENT_ID_PREFIX = "mock-agent-";
 
@@ -389,10 +389,10 @@ export function AgentDetailPage() {
     }
 
     try {
-      await openAgentTerminalDesktopWindow(item);
+      await openAgentConsoleDesktopWindow(item);
     } catch (error) {
       controller.setMessage(
-        error instanceof Error ? error.message : "打开终端窗口失败",
+        error instanceof Error ? error.message : "打开控制台窗口失败",
       );
     }
   };

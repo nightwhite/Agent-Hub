@@ -30,19 +30,25 @@ import (
 )
 
 const (
-	fileRootDir         = "/"
-	terminalDefaultDir  = "/opt/data/workspace"
-	terminalHomeDir     = "/opt/data/home"
-	terminalInstallDir  = "/opt/hermes"
-	terminalRuntimeRoot = "/opt/data"
-	wsReadLimit         = 1 << 20
-	wsWriteWait         = 10 * time.Second
-	wsPongWait          = 60 * time.Second
-	wsPingPeriod        = (wsPongWait * 9) / 10
-	wsAuthTimeout       = 15 * time.Second
-	maxFileReadSize     = 1 << 20
-	maxFileDownloadSize = 5 << 20
-	maxUploadChunkSize  = 1 << 20
+	fileRootDir             = "/"
+	terminalDefaultDir      = "/opt/data/workspace"
+	terminalHomeDir         = "/opt/data/home"
+	terminalInstallDir      = "/opt/hermes"
+	terminalRuntimeRoot     = "/opt/data"
+	wsReadLimit             = 1 << 20
+	wsWriteWait             = 10 * time.Second
+	wsPongWait              = 60 * time.Second
+	wsPingPeriod            = (wsPongWait * 9) / 10
+	wsAuthTimeout           = 15 * time.Second
+	maxFileReadSize         = 1 << 20
+	maxFileDownloadSize     = 5 << 20
+	maxUploadChunkSize      = 1 << 20
+	maxConcurrentFileOp     = 5
+	fileOpQueueTimeout      = 20 * time.Second
+	fileOpExecTimeout       = 60 * time.Second
+	terminalChunkBatchBytes = 24 * 1024
+	terminalChunkBatchDelay = 8 * time.Millisecond
+	wsOutboundQueueCap      = 512
 )
 
 type Handler struct {
@@ -75,8 +81,12 @@ type session struct {
 	agentName string
 	sendMu    sync.Mutex
 	stateMu   sync.RWMutex
+	queueMu   sync.Mutex
+	queueCond *sync.Cond
 	ctx       context.Context
 	cancel    context.CancelFunc
+	writeDone chan struct{}
+	writerOn  bool
 
 	authorization string
 	factory       *kube.Factory
@@ -86,22 +96,48 @@ type session struct {
 	terminals map[string]*terminalSession
 	logs      map[string]*logSession
 	uploads   map[string]*uploadSession
+	fileOps   chan struct{}
+
+	outboundQueue     []wsOutboundMessage
+	outboundQueueCap  int
+	outboundQueueStop bool
+	droppedByStream   map[string]int
+}
+
+type wsOutboundPriority uint8
+
+const (
+	wsOutboundPriorityControl wsOutboundPriority = iota
+	wsOutboundPriorityStream
+)
+
+type wsOutboundMessage struct {
+	message   dto.WSMessage
+	priority  wsOutboundPriority
+	streamKey string
 }
 
 func newSession(conn *websocket.Conn, requestID string, cfg config.Config, agentName, bootstrapAuth string) *session {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &session{
-		conn:          conn,
-		requestID:     requestID,
-		config:        cfg,
-		agentName:     agentName,
-		ctx:           ctx,
-		cancel:        cancel,
-		authorization: strings.TrimSpace(bootstrapAuth),
-		terminals:     map[string]*terminalSession{},
-		logs:          map[string]*logSession{},
-		uploads:       map[string]*uploadSession{},
+	s := &session{
+		conn:             conn,
+		requestID:        requestID,
+		config:           cfg,
+		agentName:        agentName,
+		ctx:              ctx,
+		cancel:           cancel,
+		authorization:    strings.TrimSpace(bootstrapAuth),
+		terminals:        map[string]*terminalSession{},
+		logs:             map[string]*logSession{},
+		uploads:          map[string]*uploadSession{},
+		fileOps:          make(chan struct{}, maxConcurrentFileOp),
+		writeDone:        make(chan struct{}),
+		outboundQueue:    make([]wsOutboundMessage, 0, wsOutboundQueueCap),
+		outboundQueueCap: wsOutboundQueueCap,
+		droppedByStream:  map[string]int{},
 	}
+	s.queueCond = sync.NewCond(&s.queueMu)
+	return s
 }
 
 func (s *session) run() {
@@ -112,6 +148,11 @@ func (s *session) run() {
 	s.conn.SetPongHandler(func(string) error {
 		return s.conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	})
+
+	s.queueMu.Lock()
+	s.writerOn = true
+	s.queueMu.Unlock()
+	go s.writeLoop()
 
 	pingDone := make(chan struct{})
 	go s.pingLoop(pingDone)
@@ -135,10 +176,16 @@ func (s *session) run() {
 	}
 
 	for {
-		var message dto.WSMessage
-		if err := s.conn.ReadJSON(&message); err != nil {
+		_, payload, err := s.conn.ReadMessage()
+		if err != nil {
 			close(pingDone)
 			return
+		}
+
+		message, decodeErr := decodeWSBinaryMessage(payload)
+		if decodeErr != nil {
+			s.sendError("", "invalid_message_frame", decodeErr.Error())
+			continue
 		}
 		s.handleMessage(message)
 	}
@@ -146,6 +193,7 @@ func (s *session) run() {
 
 func (s *session) close() {
 	s.cancel()
+	s.stopWriteLoop()
 
 	s.stateMu.Lock()
 	for _, terminal := range s.terminals {
@@ -159,7 +207,15 @@ func (s *session) close() {
 	s.uploads = map[string]*uploadSession{}
 	s.stateMu.Unlock()
 
-	_ = s.conn.Close()
+	s.queueMu.Lock()
+	writerOn := s.writerOn
+	s.queueMu.Unlock()
+	if writerOn {
+		<-s.writeDone
+	}
+	if s.conn != nil {
+		_ = s.conn.Close()
+	}
 }
 
 func (s *session) pingLoop(done <-chan struct{}) {
@@ -218,17 +274,17 @@ func (s *session) handleMessage(message dto.WSMessage) {
 	case "log.unsubscribe":
 		s.unsubscribeLogs(message)
 	case "file.list":
-		s.fileList(message)
+		go s.fileList(message)
 	case "file.read":
-		s.fileRead(message)
+		go s.fileRead(message)
 	case "file.download":
-		s.fileDownload(message)
+		go s.fileDownload(message)
 	case "file.write":
-		s.fileWrite(message)
+		go s.fileWrite(message)
 	case "file.delete":
-		s.fileDelete(message)
+		go s.fileDelete(message)
 	case "file.mkdir":
-		s.fileMkdir(message)
+		go s.fileMkdir(message)
 	case "file.upload.begin":
 		s.fileUploadBegin(message)
 	case "file.upload.chunk":
@@ -430,9 +486,9 @@ func (s *session) fileRead(message dto.WSMessage) {
 		return
 	}
 
-	output, execErr := s.execCapture([]string{"sh", "-lc", "cat -- " + shellQuote(resolved)}, "")
+	output, execErr := s.execCapture([]string{"sh", "-lc", readCommand(resolved, maxFileReadSize+1)}, "")
 	if execErr != nil {
-		s.sendError(message.RequestID, "file_read_failed", execErr.Error())
+		s.sendError(message.RequestID, "file_read_failed", formatFileOperationError(execErr))
 		return
 	}
 	if len(output) > maxFileReadSize {
@@ -454,9 +510,9 @@ func (s *session) fileDownload(message dto.WSMessage) {
 		return
 	}
 
-	output, execErr := s.execCapture([]string{"sh", "-lc", "cat -- " + shellQuote(resolved)}, "")
+	output, execErr := s.execCapture([]string{"sh", "-lc", readCommand(resolved, maxFileDownloadSize+1)}, "")
 	if execErr != nil {
-		s.sendError(message.RequestID, "file_download_failed", execErr.Error())
+		s.sendError(message.RequestID, "file_download_failed", formatFileOperationError(execErr))
 		return
 	}
 	if len(output) > maxFileDownloadSize {
@@ -480,7 +536,7 @@ func (s *session) fileWrite(message dto.WSMessage) {
 	}
 
 	if _, execErr := s.execCapture([]string{"sh", "-lc", "cat > " + shellQuote(resolved)}, getRawString(message.Data, "content")); execErr != nil {
-		s.sendError(message.RequestID, "file_write_failed", execErr.Error())
+		s.sendError(message.RequestID, "file_write_failed", formatFileOperationError(execErr))
 		return
 	}
 
@@ -499,7 +555,7 @@ func (s *session) fileDelete(message dto.WSMessage) {
 	}
 
 	if _, execErr := s.execCapture([]string{"sh", "-lc", "rm -rf -- " + shellQuote(resolved)}, ""); execErr != nil {
-		s.sendError(message.RequestID, "file_delete_failed", execErr.Error())
+		s.sendError(message.RequestID, "file_delete_failed", formatFileOperationError(execErr))
 		return
 	}
 
@@ -518,7 +574,7 @@ func (s *session) fileMkdir(message dto.WSMessage) {
 	}
 
 	if _, execErr := s.execCapture([]string{"sh", "-lc", "mkdir -p -- " + shellQuote(resolved)}, ""); execErr != nil {
-		s.sendError(message.RequestID, "file_mkdir_failed", execErr.Error())
+		s.sendError(message.RequestID, "file_mkdir_failed", formatFileOperationError(execErr))
 		return
 	}
 
@@ -585,7 +641,7 @@ func (s *session) fileUploadEnd(message dto.WSMessage) {
 	}
 
 	if _, execErr := s.execCapture([]string{"sh", "-lc", "cat > " + shellQuote(upload.Path)}, upload.Buffer.String()); execErr != nil {
-		s.sendError(message.RequestID, "file_upload_failed", execErr.Error())
+		s.sendError(message.RequestID, "file_upload_failed", formatFileOperationError(execErr))
 		return
 	}
 
@@ -605,8 +661,22 @@ func (s *session) execCapture(command []string, stdin string) (string, error) {
 	pod := s.pod
 	s.stateMu.RUnlock()
 
-	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
-	defer cancel()
+	queueCtx, queueCancel := context.WithTimeout(s.ctx, fileOpQueueTimeout)
+	defer queueCancel()
+	select {
+	case s.fileOps <- struct{}{}:
+	case <-queueCtx.Done():
+		if errors.Is(queueCtx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("file operation queue is busy, please retry")
+		}
+		return "", queueCtx.Err()
+	}
+	defer func() {
+		<-s.fileOps
+	}()
+
+	execCtx, execCancel := context.WithTimeout(s.ctx, fileOpExecTimeout)
+	defer execCancel()
 
 	var stdout strings.Builder
 	var stderr strings.Builder
@@ -615,7 +685,7 @@ func (s *session) execCapture(command []string, stdin string) (string, error) {
 		stdinReader = strings.NewReader(stdin)
 	}
 
-	err := kube.ExecInPod(ctx, clientset, factory.RESTConfig(), factory.Namespace(), pod.Name, pod.Container, command, stdinReader, &stdout, &stderr, false, nil)
+	err := kube.ExecInPod(execCtx, clientset, factory.RESTConfig(), factory.Namespace(), pod.Name, pod.Container, command, stdinReader, &stdout, &stderr, false, nil)
 	if err != nil {
 		if stderr.Len() > 0 {
 			return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
@@ -656,11 +726,169 @@ func (s *session) sendError(requestID, code, message string) {
 }
 
 func (s *session) sendJSON(v any) error {
+	message, ok := v.(dto.WSMessage)
+	if !ok {
+		return fmt.Errorf("unsupported websocket payload type %T", v)
+	}
+	if !s.enqueueOutbound(message) {
+		return io.ErrClosedPipe
+	}
+	return nil
+}
+
+func (s *session) writeLoop() {
+	defer close(s.writeDone)
+
+	for {
+		outbound, ok := s.dequeueOutbound()
+		if !ok {
+			return
+		}
+		if err := s.writeFrame(outbound.message); err != nil {
+			s.cancel()
+			return
+		}
+	}
+}
+
+func (s *session) writeFrame(message dto.WSMessage) error {
+	frame, err := encodeWSBinaryMessage(message)
+	if err != nil {
+		return err
+	}
+
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 
 	_ = s.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
-	return s.conn.WriteJSON(v)
+	return s.conn.WriteMessage(websocket.BinaryMessage, frame)
+}
+
+func (s *session) stopWriteLoop() {
+	s.queueMu.Lock()
+	if s.outboundQueueStop {
+		s.queueMu.Unlock()
+		return
+	}
+	s.outboundQueueStop = true
+	s.queueCond.Broadcast()
+	s.queueMu.Unlock()
+}
+
+func (s *session) enqueueOutbound(message dto.WSMessage) bool {
+	outbound := wsOutboundMessage{
+		message:   message,
+		priority:  outboundPriorityForType(message.Type),
+		streamKey: streamKeyForMessage(message),
+	}
+
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+
+	if s.outboundQueueStop {
+		return false
+	}
+
+	if len(s.outboundQueue) >= s.outboundQueueCap {
+		if !s.evictForInbound(outbound.priority) {
+			s.recordDroppedLocked(outbound)
+			return true
+		}
+	}
+
+	s.applyDroppedMarkerLocked(&outbound)
+	s.outboundQueue = append(s.outboundQueue, outbound)
+	s.queueCond.Signal()
+	return true
+}
+
+func (s *session) dequeueOutbound() (wsOutboundMessage, bool) {
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+
+	for len(s.outboundQueue) == 0 && !s.outboundQueueStop {
+		s.queueCond.Wait()
+	}
+	if len(s.outboundQueue) == 0 {
+		return wsOutboundMessage{}, false
+	}
+
+	index := 0
+	if s.outboundQueue[0].priority == wsOutboundPriorityStream {
+		for i := 1; i < len(s.outboundQueue); i++ {
+			if s.outboundQueue[i].priority == wsOutboundPriorityControl {
+				index = i
+				break
+			}
+		}
+	}
+
+	message := s.outboundQueue[index]
+	s.outboundQueue = append(s.outboundQueue[:index], s.outboundQueue[index+1:]...)
+	return message, true
+}
+
+func (s *session) evictForInbound(priority wsOutboundPriority) bool {
+	streamIndex := -1
+	for i, queued := range s.outboundQueue {
+		if queued.priority == wsOutboundPriorityStream {
+			streamIndex = i
+			break
+		}
+	}
+	if streamIndex >= 0 {
+		s.recordDroppedLocked(s.outboundQueue[streamIndex])
+		s.outboundQueue = append(s.outboundQueue[:streamIndex], s.outboundQueue[streamIndex+1:]...)
+		return true
+	}
+
+	if priority == wsOutboundPriorityControl && len(s.outboundQueue) > 0 {
+		s.outboundQueue = s.outboundQueue[1:]
+		return true
+	}
+
+	return false
+}
+
+func (s *session) recordDroppedLocked(message wsOutboundMessage) {
+	if message.streamKey == "" {
+		return
+	}
+	s.droppedByStream[message.streamKey] = s.droppedByStream[message.streamKey] + 1
+}
+
+func (s *session) applyDroppedMarkerLocked(message *wsOutboundMessage) {
+	if message == nil || message.streamKey == "" {
+		return
+	}
+	dropped := s.droppedByStream[message.streamKey]
+	if dropped <= 0 {
+		return
+	}
+	if message.message.Data == nil {
+		message.message.Data = map[string]any{}
+	}
+	message.message.Data["dropped"] = true
+	message.message.Data["droppedCount"] = dropped
+	delete(s.droppedByStream, message.streamKey)
+}
+
+func outboundPriorityForType(messageType string) wsOutboundPriority {
+	switch messageType {
+	case "terminal.output", "log.chunk":
+		return wsOutboundPriorityStream
+	default:
+		return wsOutboundPriorityControl
+	}
+}
+
+func streamKeyForMessage(message dto.WSMessage) string {
+	switch message.Type {
+	case "terminal.output", "log.chunk":
+		return message.Type + ":" + sessionID(message)
+	default:
+		return ""
+	}
 }
 
 func (s *session) lookupTerminal(id string) *terminalSession {
@@ -735,6 +963,7 @@ func (t *terminalSession) run(cwd string) {
 		dataKey:   "output",
 		id:        t.id,
 	}
+	defer writer.Close()
 
 	t.session.stateMu.RLock()
 	clientset := t.session.clientset
@@ -861,15 +1090,93 @@ type wsChunkWriter struct {
 	requestID string
 	dataKey   string
 	id        string
+	mu        sync.Mutex
+	buffer    strings.Builder
+	pending   bool
+	closed    bool
 }
 
 func (w *wsChunkWriter) Write(p []byte) (int, error) {
-	chunk := string(p)
-	if chunk == "" {
+	if len(p) == 0 {
 		return len(p), nil
 	}
 
-	err := w.session.sendJSON(dto.WSMessage{
+	var immediateChunk string
+
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return 0, io.ErrClosedPipe
+	}
+
+	w.buffer.Write(p)
+	if w.buffer.Len() >= terminalChunkBatchBytes {
+		immediateChunk = w.buffer.String()
+		w.buffer.Reset()
+	} else if !w.pending {
+		w.pending = true
+		go w.flushScheduled()
+	}
+	w.mu.Unlock()
+
+	if immediateChunk != "" {
+		if err := w.sendChunk(immediateChunk); err != nil {
+			return 0, err
+		}
+	}
+
+	return len(p), nil
+}
+
+func (w *wsChunkWriter) Close() {
+	var remainingChunk string
+
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return
+	}
+	w.closed = true
+	if w.buffer.Len() > 0 {
+		remainingChunk = w.buffer.String()
+		w.buffer.Reset()
+	}
+	w.pending = false
+	w.mu.Unlock()
+
+	if remainingChunk != "" {
+		_ = w.sendChunk(remainingChunk)
+	}
+}
+
+func (w *wsChunkWriter) flushScheduled() {
+	time.Sleep(terminalChunkBatchDelay)
+
+	var chunk string
+	w.mu.Lock()
+	if w.closed {
+		w.pending = false
+		w.mu.Unlock()
+		return
+	}
+	if w.buffer.Len() > 0 {
+		chunk = w.buffer.String()
+		w.buffer.Reset()
+	}
+	w.pending = false
+	w.mu.Unlock()
+
+	if chunk != "" {
+		_ = w.sendChunk(chunk)
+	}
+}
+
+func (w *wsChunkWriter) sendChunk(chunk string) error {
+	if chunk == "" {
+		return nil
+	}
+
+	return w.session.sendJSON(dto.WSMessage{
 		Type:      w.msgType,
 		RequestID: w.requestID,
 		Data: map[string]any{
@@ -877,10 +1184,6 @@ func (w *wsChunkWriter) Write(p []byte) (int, error) {
 			w.dataKey: chunk,
 		},
 	})
-	if err != nil {
-		return 0, err
-	}
-	return len(p), nil
 }
 
 func (h Handler) checkOrigin(r *http.Request) bool {
@@ -1042,6 +1345,13 @@ func formatFileListError(err error) string {
 	return err.Error()
 }
 
+func formatFileOperationError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "file operation timed out; please retry"
+	}
+	return err.Error()
+}
+
 func listCommand(dir string) string {
 	return "dir=" + shellQuote(dir) + "; " +
 		"[ -d \"$dir\" ] || { echo 'not_a_directory'; exit 1; }; " +
@@ -1060,6 +1370,21 @@ func listCommand(dir string) string {
 		"else kind=other; size=0; fi; " +
 		"printf '%s\t%s\t%s\n' \"$base\" \"$kind\" \"$size\"; " +
 		"done; " +
+		"fi"
+}
+
+func readCommand(filePath string, maxBytes int) string {
+	if maxBytes <= 0 {
+		maxBytes = 1
+	}
+
+	maxBytesText := strconv.Itoa(maxBytes)
+	return "file=" + shellQuote(filePath) + "; " +
+		"[ -f \"$file\" ] || { echo 'not_a_file'; exit 1; }; " +
+		"if command -v head >/dev/null 2>&1; then " +
+		"head -c " + maxBytesText + " -- \"$file\"; " +
+		"else " +
+		"dd if=\"$file\" bs=1 count=" + maxBytesText + " 2>/dev/null; " +
 		"fi"
 }
 

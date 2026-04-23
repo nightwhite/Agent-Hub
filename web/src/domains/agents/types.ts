@@ -408,6 +408,22 @@ export interface FilesSessionState {
   dirty: boolean;
 }
 
+export interface AgentConsoleServiceItem {
+  key: string;
+  label: string;
+  url: string;
+  enabled: boolean;
+  status?: string;
+  reason?: string;
+}
+
+export interface AgentConsoleBootstrap {
+  agent: AgentContract;
+  workspaceRoot?: string;
+  webSocketPath: string;
+  services: AgentConsoleServiceItem[];
+}
+
 export interface AgentSSHAccessPayload {
   host: string;
   port: number;

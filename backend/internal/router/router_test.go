@@ -252,8 +252,8 @@ func TestEnsureAIProxyTokenReturnsExistingToken(t *testing.T) {
 
 	var searchCalls []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v2alpha/token/search" {
-			t.Fatalf("search path = %q, want /api/v2alpha/token/search", r.URL.Path)
+		if r.URL.Path != "/api/v2alpha/tokens" {
+			t.Fatalf("search path = %q, want /api/v2alpha/tokens", r.URL.Path)
 		}
 		if auth := r.Header.Get("Authorization"); auth != validEncodedKubeconfig() {
 			t.Fatalf("search Authorization = %q, want encoded kubeconfig", auth)
@@ -316,7 +316,7 @@ func TestEnsureAIProxyTokenCreatesMissingToken(t *testing.T) {
 	created := false
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v2alpha/token/search":
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2alpha/tokens":
 			name := r.URL.Query().Get("name")
 			searchCalls = append(searchCalls, name)
 			w.Header().Set("Content-Type", "application/json")
@@ -325,7 +325,7 @@ func TestEnsureAIProxyTokenCreatesMissingToken(t *testing.T) {
 				return
 			}
 			_, _ = w.Write([]byte(`{"code":0,"message":"ok","data":{"items":[]}}`))
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v2alpha/token":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2alpha/tokens":
 			createCalls += 1
 			if auth := r.Header.Get("Authorization"); auth != validEncodedKubeconfig() {
 				t.Fatalf("create Authorization = %q, want encoded kubeconfig", auth)
@@ -387,7 +387,7 @@ func TestEnsureAIProxyTokenFallsBackToLegacyNamespaceToken(t *testing.T) {
 
 	var searchCalls []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/api/v2alpha/token/search" {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v2alpha/tokens" {
 			t.Fatalf("unexpected upstream request: %s %s", r.Method, r.URL.Path)
 		}
 
@@ -536,6 +536,23 @@ func TestPauseRouteReplacesStopRoute(t *testing.T) {
 	pauseRecorder := performRequest(t, http.MethodPost, "/api/v1/agents/demo-agent/pause", "", "", nil)
 	if pauseRecorder.Code != http.StatusUnauthorized {
 		t.Fatalf("POST /api/v1/agents/:agentName/pause status = %d, want %d", pauseRecorder.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAgentConsoleRequiresAuthorization(t *testing.T) {
+	t.Parallel()
+
+	recorder := performRequest(t, http.MethodGet, "/api/v1/agents/demo-agent/console", "", "", nil)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/v1/agents/:agentName/console status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+	}
+
+	body := decodeEnvelope(t, recorder)
+	if body.Code != 40010 {
+		t.Fatalf("GET /api/v1/agents/:agentName/console code = %d, want 40010", body.Code)
+	}
+	if body.Error == nil || body.Error.Type != "missing_authorization" {
+		t.Fatalf("GET /api/v1/agents/:agentName/console error = %#v, want missing_authorization", body.Error)
 	}
 }
 

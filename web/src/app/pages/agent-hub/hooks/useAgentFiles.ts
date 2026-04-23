@@ -6,12 +6,7 @@ import type {
   ClusterContext,
   FilesSessionState,
 } from '../../../../domains/agents/types'
-
-type FilesMessage = {
-  type?: string
-  requestId?: string
-  data?: Record<string, unknown>
-}
+import { decodeWSBinaryMessage, encodeWSBinaryMessage } from '../lib/wsBinaryProtocol'
 
 type PendingRequest = {
   resolve: (data: Record<string, unknown>) => void
@@ -24,8 +19,22 @@ type DirectoryListing = {
   fetchedAt: number
 }
 
+type FileReadResult = {
+  path: string
+  content: string
+  fetchedAt: number
+}
+
+type FileReadResponse = {
+  path: string
+  content: string
+  fromCache: boolean
+  stale: boolean
+}
+
 const fallbackRootPath = '/'
-const directoryCacheTTL = 45 * 1000
+const directoryCacheTTL = 120 * 1000
+const fileReadCacheTTL = 120 * 1000
 const markdownPreviewExtensions = new Set(['md', 'markdown', 'mdx'])
 const textPreviewExtensions = new Set([
   'txt',
@@ -144,6 +153,7 @@ const buildDirectoryListing = (response: Record<string, unknown>, requestedPath:
 }
 
 const isDirectoryListingFresh = (listing: DirectoryListing) => Date.now() - listing.fetchedAt < directoryCacheTTL
+const isFileReadFresh = (result: FileReadResult) => Date.now() - result.fetchedAt < fileReadCacheTTL
 
 const joinFilePath = (basePath: string, childName: string) => {
   const normalizedBase = normalizePath(basePath, fallbackRootPath)
@@ -285,7 +295,13 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
   const pendingRequestsRef = useRef<Map<string, PendingRequest>>(new Map())
   const pendingDirectoryRequestsRef = useRef<Map<string, Promise<DirectoryListing>>>(new Map())
   const directoryCacheRef = useRef<Map<string, DirectoryListing>>(new Map())
+  const pendingFileReadRequestsRef = useRef<Map<string, Promise<FileReadResult>>>(new Map())
+  const fileReadCacheRef = useRef<Map<string, FileReadResult>>(new Map())
   const filesSessionRef = useRef<FilesSessionState | null>(null)
+  const socketReadyRef = useRef(false)
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const activeResourceRef = useRef<AgentListItem | null>(null)
 
   const syncSession = useCallback((updater: (current: FilesSessionState | null) => FilesSessionState | null) => {
     setFilesSession((current) => {
@@ -309,33 +325,75 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     const socket = socketRef.current
     socketRef.current = null
     authSentRef.current = false
+    socketReadyRef.current = false
 
     if (socket && socket.readyState <= WebSocket.OPEN) {
       socket.close(1000, 'manual-close')
     }
   }, [])
 
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+  }, [])
+
+  const waitForSocketReady = useCallback(async (timeoutMs = 20000) => {
+    const start = Date.now()
+
+    while (Date.now() - start < timeoutMs) {
+      const socket = socketRef.current
+      const session = filesSessionRef.current
+
+      if (socket && socket.readyState === WebSocket.OPEN && socketReadyRef.current) {
+        return
+      }
+
+      if (session?.status === 'error') {
+        throw new Error(session.error || '文件连接异常，请稍后重试。')
+      }
+
+      if (session?.status === 'disconnected') {
+        throw new Error('文件连接已断开，请重新打开控制台。')
+      }
+
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 80)
+      })
+    }
+
+    throw new Error('文件连接尚未就绪，请稍后重试。')
+  }, [])
+
   const sendRequest = useCallback(
     (type: string, data: Record<string, unknown>) =>
       new Promise<Record<string, unknown>>((resolve, reject) => {
-        const socket = socketRef.current
-        if (!socket || socket.readyState !== WebSocket.OPEN) {
-          reject(new Error('文件连接尚未建立'))
-          return
+        const execute = async () => {
+          await waitForSocketReady()
+
+          const socket = socketRef.current
+          if (!socket || socket.readyState !== WebSocket.OPEN) {
+            throw new Error('文件连接尚未建立')
+          }
+
+          const requestId = nextRequestId(type)
+          pendingRequestsRef.current.set(requestId, { resolve, reject })
+
+          socket.send(
+            encodeWSBinaryMessage({
+              type,
+              requestId,
+              data,
+            }),
+          )
         }
 
-        const requestId = nextRequestId(type)
-        pendingRequestsRef.current.set(requestId, { resolve, reject })
-
-        socket.send(
-          JSON.stringify({
-            type,
-            requestId,
-            data,
-          }),
-        )
+        void execute().catch((error) => {
+          reject(error instanceof Error ? error : new Error('文件请求失败'))
+        })
       }),
-    [nextRequestId],
+    [nextRequestId, waitForSocketReady],
   )
 
   const ensureDiscardChanges = useCallback(() => {
@@ -349,6 +407,32 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     directoryVersionRef.current += 1
     pendingDirectoryRequestsRef.current.clear()
     directoryCacheRef.current.clear()
+    pendingFileReadRequestsRef.current.clear()
+    fileReadCacheRef.current.clear()
+  }, [])
+
+  const invalidateFileReadCache = useCallback((targetPath?: string) => {
+    if (!targetPath) {
+      pendingFileReadRequestsRef.current.clear()
+      fileReadCacheRef.current.clear()
+      return
+    }
+
+    const normalizedTarget = String(targetPath || '').replace(/\/+$/, '') || fallbackRootPath
+
+    for (const key of Array.from(pendingFileReadRequestsRef.current.keys())) {
+      const normalizedKey = key.replace(/\/+$/, '') || fallbackRootPath
+      if (normalizedKey === normalizedTarget || normalizedKey.startsWith(`${normalizedTarget}/`)) {
+        pendingFileReadRequestsRef.current.delete(key)
+      }
+    }
+
+    for (const key of Array.from(fileReadCacheRef.current.keys())) {
+      const normalizedKey = key.replace(/\/+$/, '') || fallbackRootPath
+      if (normalizedKey === normalizedTarget || normalizedKey.startsWith(`${normalizedTarget}/`)) {
+        fileReadCacheRef.current.delete(key)
+      }
+    }
   }, [])
 
   const invalidateDirectoryListing = useCallback((targetPath?: string) => {
@@ -356,6 +440,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     if (!targetPath) {
       pendingDirectoryRequestsRef.current.clear()
       directoryCacheRef.current.clear()
+      invalidateFileReadCache()
       return
     }
 
@@ -373,7 +458,8 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
         directoryCacheRef.current.delete(key)
       }
     }
-  }, [])
+    invalidateFileReadCache(targetPath)
+  }, [invalidateFileReadCache])
 
   const resetOpenedState = useCallback((options?: { preserveSelection?: boolean }) => {
     let previousObjectUrl = ''
@@ -465,7 +551,9 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
   )
 
   const fetchDirectoryListing = useCallback(
-    async (requestedPath: string, options?: { force?: boolean }) => {
+    async (targetPath: string, options?: { force?: boolean }) => {
+      const requestedPath = normalizePath(targetPath || fallbackRootPath, fallbackRootPath)
+
       if (!options?.force) {
         const cached = directoryCacheRef.current.get(requestedPath)
         if (cached && isDirectoryListingFresh(cached)) {
@@ -506,7 +594,10 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
       const current = filesSessionRef.current
       if (!current) return
 
-      const requestedPath = String(targetPath || current.currentPath || current.rootPath || fallbackRootPath)
+      const requestedPath = normalizePath(
+        targetPath || current.currentPath || current.rootPath || fallbackRootPath,
+        fallbackRootPath,
+      )
       browseRequestSeqRef.current += 1
       const browseRequestSeq = browseRequestSeqRef.current
 
@@ -559,7 +650,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
   const prefetchDirectory = useCallback(
     (targetPath: string) => {
       const current = filesSessionRef.current
-      const requestedPath = String(targetPath || '').trim()
+      const requestedPath = normalizePath(targetPath || '', '')
       if (!current || !requestedPath || requestedPath === current.currentPath) {
         return
       }
@@ -567,6 +658,102 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
       void fetchDirectoryListing(requestedPath).catch(() => {})
     },
     [fetchDirectoryListing],
+  )
+
+  const readDirectory = useCallback(
+    async (targetPath?: string, options?: { force?: boolean }) => {
+      const current = filesSessionRef.current
+      if (!current) {
+        throw new Error('文件会话未初始化')
+      }
+
+      const requestedPath = normalizePath(
+        targetPath || current.currentPath || current.rootPath || fallbackRootPath,
+        fallbackRootPath,
+      )
+      const listing = await fetchDirectoryListing(requestedPath, options)
+      return {
+        path: listing.path,
+        items: listing.items,
+      }
+    },
+    [fetchDirectoryListing],
+  )
+
+  const readFile = useCallback(
+    async (targetPath: string, options?: { force?: boolean }): Promise<FileReadResponse> => {
+      const requestedPath = normalizePath(targetPath || '', '')
+      if (!requestedPath) {
+        throw new Error('文件路径为空')
+      }
+
+      const fetchLatest = () => {
+        const request = sendRequest('file.read', { path: requestedPath })
+          .then((response) => {
+            const result: FileReadResult = {
+              path: String(response.path || requestedPath),
+              content: String(response.content || ''),
+              fetchedAt: Date.now(),
+            }
+
+            fileReadCacheRef.current.set(result.path, result)
+            fileReadCacheRef.current.set(requestedPath, result)
+            return result
+          })
+          .finally(() => {
+            const currentRequest = pendingFileReadRequestsRef.current.get(requestedPath)
+            if (currentRequest === request) {
+              pendingFileReadRequestsRef.current.delete(requestedPath)
+            }
+          })
+        pendingFileReadRequestsRef.current.set(requestedPath, request)
+        return request
+      }
+
+      if (!options?.force) {
+        const cached = fileReadCacheRef.current.get(requestedPath)
+        if (cached) {
+          if (isFileReadFresh(cached)) {
+            return {
+              path: cached.path,
+              content: cached.content,
+              fromCache: true,
+              stale: false,
+            }
+          }
+
+          if (!pendingFileReadRequestsRef.current.get(requestedPath)) {
+            void fetchLatest().catch(() => {})
+          }
+          return {
+            path: cached.path,
+            content: cached.content,
+            fromCache: true,
+            stale: true,
+          }
+        }
+      }
+
+      const pending = pendingFileReadRequestsRef.current.get(requestedPath)
+      if (pending) {
+        const result = await pending
+        return {
+          path: result.path,
+          content: result.content,
+          fromCache: false,
+          stale: false,
+        }
+      }
+
+      const result = await fetchLatest()
+      return {
+        path: result.path,
+        content: result.content,
+        fromCache: false,
+        stale: false,
+      }
+    },
+    [sendRequest],
   )
 
   const refreshDirectory = useCallback(() => {
@@ -939,6 +1126,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
         path: activeItem.path,
         content: current.draftContent,
       })
+      invalidateFileReadCache(activeItem.path)
       invalidateDirectoryListing(current.currentPath)
 
       const nextSize = new Blob([current.draftContent]).size
@@ -995,7 +1183,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
             : session,
         )
       }
-  }, [invalidateDirectoryListing, listDirectory, sendRequest, syncSession])
+  }, [invalidateDirectoryListing, invalidateFileReadCache, listDirectory, sendRequest, syncSession])
 
   const createEmptyFile = useCallback(async (name: string) => {
     const current = filesSessionRef.current
@@ -1003,6 +1191,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     if (!current || !nextName) return
 
     const path = joinFilePath(current.currentPath, nextName)
+    invalidateFileReadCache(path)
     invalidateDirectoryListing(current.currentPath)
 
     syncSession((session) =>
@@ -1040,7 +1229,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
             : session,
         )
       }
-  }, [editEntry, invalidateDirectoryListing, listDirectory, sendRequest, syncSession])
+  }, [editEntry, invalidateDirectoryListing, invalidateFileReadCache, listDirectory, sendRequest, syncSession])
 
   const createDirectory = useCallback(async (name: string) => {
     const current = filesSessionRef.current
@@ -1081,6 +1270,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
   const deleteEntry = useCallback(async (path: string) => {
     const current = filesSessionRef.current
     if (!current || !path) return
+    invalidateFileReadCache(path)
     invalidateDirectoryListing(current.currentPath)
     invalidateDirectoryListing(path)
 
@@ -1149,7 +1339,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
           : session,
       )
     }
-  }, [invalidateDirectoryListing, listDirectory, sendRequest, syncSession])
+  }, [invalidateDirectoryListing, invalidateFileReadCache, listDirectory, sendRequest, syncSession])
 
   const downloadEntry = useCallback(async (path: string) => {
     if (!path) return
@@ -1211,6 +1401,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     const current = filesSessionRef.current
     const fileList = Array.from(files || [])
     if (!current || !fileList.length) return
+    invalidateFileReadCache(current.currentPath)
     invalidateDirectoryListing(current.currentPath)
 
     syncSession((session) =>
@@ -1278,9 +1469,12 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
           : session,
       )
     }
-  }, [invalidateDirectoryListing, listDirectory, nextRequestId, sendRequest, syncSession])
+  }, [invalidateDirectoryListing, invalidateFileReadCache, listDirectory, nextRequestId, sendRequest, syncSession])
 
   const connectFiles = useCallback(async (resource: AgentListItem) => {
+    activeResourceRef.current = resource
+    clearReconnectTimer()
+
     if (!clusterContext?.kubeconfig) {
       syncSession((session) =>
         session
@@ -1308,17 +1502,19 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     const encodedKubeconfig = encodeURIComponent(clusterContext.kubeconfig)
     const wsUrl = buildAgentWebSocketUrl(resource.name)
     const socket = new WebSocket(wsUrl)
+    socket.binaryType = 'arraybuffer'
 
     closeFilesSocket()
     socketRef.current = socket
     authSentRef.current = false
+    socketReadyRef.current = false
 
     const sendAuth = () => {
       if (socket.readyState !== WebSocket.OPEN || authSentRef.current) return
       authSentRef.current = true
 
       socket.send(
-        JSON.stringify({
+        encodeWSBinaryMessage({
           type: 'auth',
           requestId: nextRequestId('auth'),
           data: {
@@ -1329,10 +1525,12 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     }
 
     socket.addEventListener('message', (event) => {
-      let messagePayload: FilesMessage | null = null
+      if (!(event.data instanceof ArrayBuffer)) return
+
+      let messagePayload: ReturnType<typeof decodeWSBinaryMessage> | null = null
 
       try {
-        messagePayload = JSON.parse(String(event.data || '{}'))
+        messagePayload = decodeWSBinaryMessage(event.data)
       } catch {
         return
       }
@@ -1346,6 +1544,9 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
           break
         }
         case 'system.ready': {
+          socketReadyRef.current = true
+          reconnectAttemptsRef.current = 0
+          clearReconnectTimer()
           syncSession((session) =>
             session
               ? {
@@ -1405,6 +1606,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     })
 
     socket.addEventListener('error', () => {
+      socketReadyRef.current = false
       rejectPendingRequests('文件连接异常，请关闭后重新打开。')
       syncSession((session) =>
         session
@@ -1441,9 +1643,41 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
       if (socketRef.current === socket) {
         socketRef.current = null
         authSentRef.current = false
+        socketReadyRef.current = false
+      }
+
+      const currentSession = filesSessionRef.current
+      const activeResource = activeResourceRef.current
+      const shouldReconnect =
+        event.code !== 1000 &&
+        currentSession?.resource?.name === resource.name &&
+        activeResource?.name === resource.name &&
+        reconnectAttemptsRef.current < 3
+
+      if (shouldReconnect) {
+        reconnectAttemptsRef.current += 1
+        const delayMs = 500 * reconnectAttemptsRef.current
+        syncSession((session) =>
+          session
+            ? {
+                ...session,
+                status: 'connecting',
+                error: '',
+                activity: `文件连接中断，正在重连（第 ${reconnectAttemptsRef.current} 次）...`,
+              }
+            : session,
+        )
+
+        reconnectTimerRef.current = window.setTimeout(() => {
+          const latest = filesSessionRef.current
+          if (!latest || latest.resource.name !== resource.name) {
+            return
+          }
+          void connectFiles(resource)
+        }, delayMs)
       }
     })
-  }, [closeFilesSocket, clusterContext?.kubeconfig, listDirectory, nextRequestId, rejectPendingRequests, syncSession])
+  }, [clearReconnectTimer, closeFilesSocket, clusterContext?.kubeconfig, listDirectory, nextRequestId, rejectPendingRequests, syncSession])
 
   useEffect(() => {
     const resource = filesSession?.resource
@@ -1458,28 +1692,36 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
 
   useEffect(
     () => () => {
+      clearReconnectTimer()
       closeFilesSocket()
       rejectPendingRequests('文件连接已关闭')
     },
-    [closeFilesSocket, rejectPendingRequests],
+    [clearReconnectTimer, closeFilesSocket, rejectPendingRequests],
   )
 
   const openFiles = useCallback((item: AgentListItem) => {
     resetDirectoryListings()
     browseRequestSeqRef.current = 0
+    reconnectAttemptsRef.current = 0
+    clearReconnectTimer()
+    activeResourceRef.current = item
     const next = createFilesSession(item)
     filesSessionRef.current = next
     setFilesSession(next)
-  }, [resetDirectoryListings])
+  }, [clearReconnectTimer, resetDirectoryListings])
 
   const closeFiles = useCallback(() => {
+    invalidateFileReadCache()
     resetDirectoryListings()
+    reconnectAttemptsRef.current = 0
+    clearReconnectTimer()
+    activeResourceRef.current = null
     closeFilesSocket()
     rejectPendingRequests('文件连接已关闭')
     revokeObjectUrl(filesSessionRef.current?.previewObjectUrl || '')
     filesSessionRef.current = null
     setFilesSession(null)
-  }, [closeFilesSocket, rejectPendingRequests, resetDirectoryListings])
+  }, [clearReconnectTimer, closeFilesSocket, invalidateFileReadCache, rejectPendingRequests, resetDirectoryListings])
 
   return {
     closeFiles,
@@ -1496,6 +1738,8 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     openParentDirectory,
     prefetchDirectory,
     previewEntry,
+    readDirectory,
+    readFile,
     refreshDirectory,
     saveSelectedFile,
     selectEntry,
