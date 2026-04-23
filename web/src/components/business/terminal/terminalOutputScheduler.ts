@@ -14,6 +14,19 @@ type TerminalOutputBackpressureState = {
 export const resolveTerminalFlushMode = (queuedChars: number): 'normal' | 'burst' =>
   queuedChars > terminalOutputBurstThreshold ? 'burst' : 'normal'
 
+const trimQueueToCharLimit = (state: TerminalOutputBackpressureState) => {
+  while (state.queuedChars > terminalOutputQueueCharLimit && state.head < state.queue.length) {
+    const removed = state.queue[state.head] || ''
+    state.queuedChars -= removed.length
+    state.head += 1
+  }
+
+  if (state.head > 0 && (state.head >= 1024 || state.head * 2 >= state.queue.length)) {
+    state.queue = state.queue.slice(state.head)
+    state.head = 0
+  }
+}
+
 export const applyTerminalOutputBackpressure = (
   state: TerminalOutputBackpressureState,
   incomingChunk: string,
@@ -29,21 +42,13 @@ export const applyTerminalOutputBackpressure = (
     return state
   }
 
-  while (state.queuedChars > terminalOutputQueueCharLimit && state.head < state.queue.length) {
-    const removed = state.queue[state.head] || ''
-    state.queuedChars -= removed.length
-    state.head += 1
-  }
-
-  if (state.head > 0 && (state.head >= 1024 || state.head*2 >= state.queue.length)) {
-    state.queue = state.queue.slice(state.head)
-    state.head = 0
-  }
+  trimQueueToCharLimit(state)
 
   if (!state.droppedNoticeQueued) {
     state.queue.push(terminalOutputDropNotice)
     state.queuedChars += terminalOutputDropNotice.length
     state.droppedNoticeQueued = true
+    trimQueueToCharLimit(state)
   }
 
   return state

@@ -11,6 +11,7 @@ import { decodeWSBinaryMessage, encodeWSBinaryMessage } from '../lib/wsBinaryPro
 type PendingRequest = {
   resolve: (data: Record<string, unknown>) => void
   reject: (error: Error) => void
+  timeoutId: number | null
 }
 
 type DirectoryListing = {
@@ -32,9 +33,20 @@ type FileReadResponse = {
   stale: boolean
 }
 
+type ReadyGate = {
+  promise: Promise<void>
+  resolve: () => void
+  reject: (error: Error) => void
+  settled: boolean
+}
+
 const fallbackRootPath = '/'
 const directoryCacheTTL = 120 * 1000
 const fileReadCacheTTL = 120 * 1000
+const fileRequestTimeoutMs = 30 * 1000
+const fileSocketReadyTimeoutMs = 20 * 1000
+const reconnectDelaySchedule = [500, 1000, 2000, 4000, 8000]
+const maxReconnectAttempts = 6
 const markdownPreviewExtensions = new Set(['md', 'markdown', 'mdx'])
 const textPreviewExtensions = new Set([
   'txt',
@@ -280,6 +292,35 @@ const revokeObjectUrl = (value = '') => {
   }
 }
 
+const createReadyGate = (): ReadyGate => {
+  let resolvePromise: () => void = () => {}
+  let rejectPromise: (reason?: unknown) => void = () => {}
+
+  const gate: ReadyGate = {
+    promise: new Promise<void>((resolve, reject) => {
+      resolvePromise = resolve
+      rejectPromise = reject
+    }),
+    resolve: () => {},
+    reject: () => {},
+    settled: false,
+  }
+
+  gate.resolve = () => {
+    if (gate.settled) return
+    gate.settled = true
+    resolvePromise()
+  }
+
+  gate.reject = (error: Error) => {
+    if (gate.settled) return
+    gate.settled = true
+    rejectPromise(error)
+  }
+
+  return gate
+}
+
 interface UseAgentFilesOptions {
   clusterContext: ClusterContext | null
 }
@@ -299,6 +340,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
   const fileReadCacheRef = useRef<Map<string, FileReadResult>>(new Map())
   const filesSessionRef = useRef<FilesSessionState | null>(null)
   const socketReadyRef = useRef(false)
+  const readyGateRef = useRef<ReadyGate | null>(null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<number | null>(null)
   const activeResourceRef = useRef<AgentListItem | null>(null)
@@ -316,21 +358,36 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     return `${prefix}-${Date.now()}-${requestSeqRef.current}`
   }, [])
 
-  const rejectPendingRequests = useCallback((message: string) => {
-    pendingRequestsRef.current.forEach(({ reject }) => reject(new Error(message)))
-    pendingRequestsRef.current.clear()
+  const clearPendingRequestTimeout = useCallback((pending?: PendingRequest) => {
+    if (pending?.timeoutId !== null && pending?.timeoutId !== undefined) {
+      window.clearTimeout(pending.timeoutId)
+    }
   }, [])
+
+  const rejectReadyGate = useCallback((message: string) => {
+    readyGateRef.current?.reject(new Error(message))
+    readyGateRef.current = null
+  }, [])
+
+  const rejectPendingRequests = useCallback((message: string) => {
+    pendingRequestsRef.current.forEach((pending) => {
+      clearPendingRequestTimeout(pending)
+      pending.reject(new Error(message))
+    })
+    pendingRequestsRef.current.clear()
+  }, [clearPendingRequestTimeout])
 
   const closeFilesSocket = useCallback(() => {
     const socket = socketRef.current
     socketRef.current = null
     authSentRef.current = false
     socketReadyRef.current = false
+    rejectReadyGate('文件连接已关闭')
 
     if (socket && socket.readyState <= WebSocket.OPEN) {
       socket.close(1000, 'manual-close')
     }
-  }, [])
+  }, [rejectReadyGate])
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -339,31 +396,32 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     }
   }, [])
 
-  const waitForSocketReady = useCallback(async (timeoutMs = 20000) => {
-    const start = Date.now()
-
-    while (Date.now() - start < timeoutMs) {
-      const socket = socketRef.current
-      const session = filesSessionRef.current
-
-      if (socket && socket.readyState === WebSocket.OPEN && socketReadyRef.current) {
-        return
-      }
-
-      if (session?.status === 'error') {
-        throw new Error(session.error || '文件连接异常，请稍后重试。')
-      }
-
-      if (session?.status === 'disconnected') {
-        throw new Error('文件连接已断开，请重新打开控制台。')
-      }
-
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 80)
-      })
+  const waitForSocketReady = useCallback(async (timeoutMs = fileSocketReadyTimeoutMs) => {
+    const gate = readyGateRef.current
+    if (!gate) {
+      throw new Error('文件连接尚未建立')
     }
 
-    throw new Error('文件连接尚未就绪，请稍后重试。')
+    await new Promise<void>((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        reject(new Error('文件连接尚未就绪，请稍后重试。'))
+      }, timeoutMs)
+
+      gate.promise
+        .then(() => {
+          window.clearTimeout(timeoutId)
+          resolve()
+        })
+        .catch((error) => {
+          window.clearTimeout(timeoutId)
+          reject(error instanceof Error ? error : new Error('文件连接异常，请稍后重试。'))
+        })
+    })
+
+    const socket = socketRef.current
+    if (!socket || socket.readyState !== WebSocket.OPEN || !socketReadyRef.current) {
+      throw new Error('文件连接尚未建立')
+    }
   }, [])
 
   const sendRequest = useCallback(
@@ -378,22 +436,40 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
           }
 
           const requestId = nextRequestId(type)
-          pendingRequestsRef.current.set(requestId, { resolve, reject })
+          const timeoutId = window.setTimeout(() => {
+            const pending = pendingRequestsRef.current.get(requestId)
+            if (!pending) return
+            pendingRequestsRef.current.delete(requestId)
+            pending.reject(new Error('文件请求超时，请重试。'))
+          }, fileRequestTimeoutMs)
 
-          socket.send(
-            encodeWSBinaryMessage({
-              type,
-              requestId,
-              data,
-            }),
-          )
+          pendingRequestsRef.current.set(requestId, {
+            resolve,
+            reject,
+            timeoutId,
+          })
+
+          try {
+            socket.send(
+              encodeWSBinaryMessage({
+                type,
+                requestId,
+                data,
+              }),
+            )
+          } catch (error) {
+            const pending = pendingRequestsRef.current.get(requestId)
+            pendingRequestsRef.current.delete(requestId)
+            clearPendingRequestTimeout(pending)
+            throw error
+          }
         }
 
         void execute().catch((error) => {
           reject(error instanceof Error ? error : new Error('文件请求失败'))
         })
       }),
-    [nextRequestId, waitForSocketReady],
+    [clearPendingRequestTimeout, nextRequestId, waitForSocketReady],
   )
 
   const ensureDiscardChanges = useCallback(() => {
@@ -1476,6 +1552,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     clearReconnectTimer()
 
     if (!clusterContext?.kubeconfig) {
+      rejectReadyGate('未读取到 kubeconfig，无法建立文件连接。')
       syncSession((session) =>
         session
           ? {
@@ -1503,11 +1580,13 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     const wsUrl = buildAgentWebSocketUrl(resource.name)
     const socket = new WebSocket(wsUrl)
     socket.binaryType = 'arraybuffer'
+    const readyGate = createReadyGate()
 
     closeFilesSocket()
     socketRef.current = socket
     authSentRef.current = false
     socketReadyRef.current = false
+    readyGateRef.current = readyGate
 
     const sendAuth = () => {
       if (socket.readyState !== WebSocket.OPEN || authSentRef.current) return
@@ -1545,6 +1624,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
         }
         case 'system.ready': {
           socketReadyRef.current = true
+          readyGate.resolve()
           reconnectAttemptsRef.current = 0
           clearReconnectTimer()
           syncSession((session) =>
@@ -1570,6 +1650,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
           const pending = pendingRequestsRef.current.get(requestId)
           if (!pending) break
           pendingRequestsRef.current.delete(requestId)
+          clearPendingRequestTimeout(pending)
           pending.resolve(data)
           break
         }
@@ -1583,11 +1664,13 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
             const pending = pendingRequestsRef.current.get(requestId)
             if (pending) {
               pendingRequestsRef.current.delete(requestId)
+              clearPendingRequestTimeout(pending)
               pending.reject(error)
               break
             }
           }
 
+          readyGate.reject(error)
           syncSession((session) =>
             session
               ? {
@@ -1607,6 +1690,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
 
     socket.addEventListener('error', () => {
       socketReadyRef.current = false
+      readyGate.reject(new Error('文件连接异常，请关闭后重新打开。'))
       rejectPendingRequests('文件连接异常，请关闭后重新打开。')
       syncSession((session) =>
         session
@@ -1621,9 +1705,10 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     })
 
     socket.addEventListener('close', (event) => {
-      rejectPendingRequests(
-        event.code && event.code !== 1000 ? `文件连接已关闭（code=${event.code}）` : '文件连接已关闭',
-      )
+      const closeMessage =
+        event.code && event.code !== 1000 ? `文件连接已关闭（code=${event.code}）` : '文件连接已关闭'
+      readyGate.reject(new Error(closeMessage))
+      rejectPendingRequests(closeMessage)
 
       syncSession((session) =>
         session
@@ -1644,6 +1729,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
         socketRef.current = null
         authSentRef.current = false
         socketReadyRef.current = false
+        readyGateRef.current = null
       }
 
       const currentSession = filesSessionRef.current
@@ -1652,18 +1738,19 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
         event.code !== 1000 &&
         currentSession?.resource?.name === resource.name &&
         activeResource?.name === resource.name &&
-        reconnectAttemptsRef.current < 3
+        reconnectAttemptsRef.current < maxReconnectAttempts
 
       if (shouldReconnect) {
         reconnectAttemptsRef.current += 1
-        const delayMs = 500 * reconnectAttemptsRef.current
+        const attempt = reconnectAttemptsRef.current
+        const delayMs = reconnectDelaySchedule[Math.min(attempt - 1, reconnectDelaySchedule.length - 1)]
         syncSession((session) =>
           session
             ? {
                 ...session,
                 status: 'connecting',
                 error: '',
-                activity: `文件连接中断，正在重连（第 ${reconnectAttemptsRef.current} 次）...`,
+                activity: `文件连接中断，正在重连（第 ${attempt} 次，${Math.max(1, Math.round(delayMs / 1000))}s 后）...`,
               }
             : session,
         )
@@ -1677,7 +1764,17 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
         }, delayMs)
       }
     })
-  }, [clearReconnectTimer, closeFilesSocket, clusterContext?.kubeconfig, listDirectory, nextRequestId, rejectPendingRequests, syncSession])
+  }, [
+    clearPendingRequestTimeout,
+    clearReconnectTimer,
+    closeFilesSocket,
+    clusterContext?.kubeconfig,
+    listDirectory,
+    nextRequestId,
+    rejectReadyGate,
+    rejectPendingRequests,
+    syncSession,
+  ])
 
   useEffect(() => {
     const resource = filesSession?.resource
@@ -1746,4 +1843,10 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     updateSelectedContent,
     uploadFiles,
   }
+}
+
+export const __agentFilesTestables = {
+  createReadyGate,
+  reconnectDelaySchedule,
+  maxReconnectAttempts,
 }

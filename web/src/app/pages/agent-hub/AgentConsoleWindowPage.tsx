@@ -40,6 +40,13 @@ import type {
 import { addSealosAppEventListener, getSealosSession } from '../../../sealosSdk'
 import { useAgentFiles } from './hooks/useAgentFiles'
 import { useAgentTerminal } from './hooks/useAgentTerminal'
+import {
+  applyAutoExpandChain,
+  buildExplorerPathChain,
+  explorerFileSystemRootPath,
+  isTrustedDesktopMessageOrigin,
+  normalizeExplorerPath,
+} from './lib/consoleExplorerHelpers'
 import { parseAgentTerminalDesktopMessage } from './lib/desktopMessages'
 
 const defaultConsoleTitle = 'Agent 控制台'
@@ -87,37 +94,7 @@ type ExplorerFlagMap = Record<string, boolean>
 type ExplorerErrorMap = Record<string, string>
 
 const initialTabs: ConsoleTab[] = [{ id: 'home', type: 'home', title: '控制台首页' }]
-const fileSystemRootPath = '/'
-
-const normalizeExplorerPath = (value: string) => {
-  const raw = String(value || '').trim()
-  if (!raw) return fileSystemRootPath
-
-  const normalized = raw.replace(/\/+/g, '/').replace(/\/+$/, '')
-  if (!normalized) return fileSystemRootPath
-
-  if (normalized.startsWith('/')) {
-    return normalized
-  }
-
-  return `/${normalized}`
-}
-
-const buildExplorerPathChain = (value: string) => {
-  const normalized = normalizeExplorerPath(value)
-  if (normalized === fileSystemRootPath) {
-    return [fileSystemRootPath]
-  }
-
-  const segments = normalized.split('/').filter(Boolean)
-  const chain: string[] = [fileSystemRootPath]
-  let current = ''
-  for (const segment of segments) {
-    current += `/${segment}`
-    chain.push(current)
-  }
-  return chain
-}
+const fileSystemRootPath = explorerFileSystemRootPath
 
 const iconForTab = (tab: ConsoleTab) => {
   switch (tab.type) {
@@ -179,11 +156,13 @@ function nestedPadding(depth: number): CSSProperties {
 }
 
 function TerminalTabPane({
+  active,
   clusterContext,
   item,
   onErrorMessage,
   onStatusChange,
 }: {
+  active: boolean
   clusterContext: ClusterContext | null
   item: AgentListItem
   onErrorMessage: (message: string) => void
@@ -232,6 +211,7 @@ function TerminalTabPane({
   return (
     <div className="h-full">
       <AgentTerminalWorkspace
+        isVisible={active}
         onAttachOutput={subscribeTerminalOutput}
         onError={markTerminalError}
         onInput={sendTerminalInput}
@@ -339,10 +319,14 @@ export function AgentConsoleWindowPage() {
   const [explorerExpanded, setExplorerExpanded] = useState<ExplorerFlagMap>({})
   const [explorerLoading, setExplorerLoading] = useState<ExplorerFlagMap>({})
   const [explorerErrors, setExplorerErrors] = useState<ExplorerErrorMap>({})
+  const [explorerRootPath, setExplorerRootPath] = useState(fileSystemRootPath)
 
   const tabSeedRef = useRef(1)
   const defaultExpandedKeyRef = useRef('')
   const rootAutoExpandedKeyRef = useRef('')
+  const rootAnchorKeyRef = useRef('')
+  const userSwitchedRootRef = useRef(false)
+  const manuallyCollapsedPathsRef = useRef<Set<string>>(new Set())
 
   const displayName = useMemo(
     () => item?.aliasName || item?.name || activeAgentName || defaultConsoleTitle,
@@ -359,7 +343,10 @@ export function AgentConsoleWindowPage() {
     clusterContext,
   })
 
-  const explorerRoot: string = fileSystemRootPath
+  const explorerRoot = useMemo(
+    () => normalizeExplorerPath(explorerRootPath || fileSystemRootPath),
+    [explorerRootPath],
+  )
   const defaultWorkingPath = useMemo(
     () =>
       normalizeExplorerPath(
@@ -696,19 +683,50 @@ export function AgentConsoleWindowPage() {
 
   const toggleDirectory = useCallback(
     (directoryPath: string) => {
-      const expanded = Boolean(explorerExpanded[directoryPath])
-      const nextExpanded = !expanded
+      const normalizedPath = normalizeExplorerPath(directoryPath)
+      const shouldLoadChildren = !explorerChildren[normalizedPath] && !explorerLoading[normalizedPath]
+      let nextExpanded = false
 
-      setExplorerExpanded((current) => ({
-        ...current,
-        [directoryPath]: nextExpanded,
-      }))
+      setExplorerExpanded((current) => {
+        const expanded = Boolean(current[normalizedPath])
+        nextExpanded = !expanded
+        if (nextExpanded) {
+          manuallyCollapsedPathsRef.current.delete(normalizedPath)
+        } else {
+          manuallyCollapsedPathsRef.current.add(normalizedPath)
+        }
+        if (expanded === nextExpanded) return current
+        return {
+          ...current,
+          [normalizedPath]: nextExpanded,
+        }
+      })
 
-      if (nextExpanded && !explorerChildren[directoryPath] && !explorerLoading[directoryPath]) {
-        void ensureDirectoryLoaded(directoryPath)
+      if (nextExpanded && shouldLoadChildren) {
+        void ensureDirectoryLoaded(normalizedPath)
       }
     },
-    [ensureDirectoryLoaded, explorerChildren, explorerExpanded, explorerLoading],
+    [ensureDirectoryLoaded, explorerChildren, explorerLoading],
+  )
+
+  const switchExplorerRoot = useCallback(
+    (targetPath: string, mode: 'default' | 'filesystem') => {
+      const normalizedPath = normalizeExplorerPath(targetPath)
+      userSwitchedRootRef.current = mode === 'filesystem'
+      manuallyCollapsedPathsRef.current.delete(normalizedPath)
+      setExplorerRootPath((current) => (current === normalizedPath ? current : normalizedPath))
+      setExplorerExpanded((current) => {
+        if (current[normalizedPath]) return current
+        return {
+          ...current,
+          [normalizedPath]: true,
+        }
+      })
+      if (filesConnected && !explorerChildren[normalizedPath] && !explorerLoading[normalizedPath]) {
+        void ensureDirectoryLoaded(normalizedPath)
+      }
+    },
+    [ensureDirectoryLoaded, explorerChildren, explorerLoading, filesConnected],
   )
 
   useEffect(() => {
@@ -743,6 +761,7 @@ export function AgentConsoleWindowPage() {
 
     const onWindowMessage = (event: MessageEvent) => {
       if (!event.source) return
+      if (!isTrustedDesktopMessageOrigin(event.origin, window.location.origin)) return
       applyMessage(event.data)
     }
 
@@ -834,6 +853,10 @@ export function AgentConsoleWindowPage() {
     setExplorerErrors({})
     defaultExpandedKeyRef.current = ''
     rootAutoExpandedKeyRef.current = ''
+    rootAnchorKeyRef.current = ''
+    userSwitchedRootRef.current = false
+    manuallyCollapsedPathsRef.current.clear()
+    setExplorerRootPath(fileSystemRootPath)
   }, [item?.name])
 
   useEffect(() => {
@@ -850,24 +873,43 @@ export function AgentConsoleWindowPage() {
   )
 
   useEffect(() => {
+    if (!filesSession || !filesConnected || !defaultWorkingPath) return
+    if (userSwitchedRootRef.current) return
+
+    const key = `${filesSession.resource.name}:${defaultWorkingPath}`
+    if (rootAnchorKeyRef.current === key) return
+    rootAnchorKeyRef.current = key
+    manuallyCollapsedPathsRef.current.delete(defaultWorkingPath)
+    setExplorerRootPath((current) => (current === defaultWorkingPath ? current : defaultWorkingPath))
+  }, [defaultWorkingPath, filesConnected, filesSession])
+
+  useEffect(() => {
     if (!filesSession || !explorerRoot || !filesConnected) return
 
     const key = `${filesSession.resource.name}:${explorerRoot}`
     if (rootAutoExpandedKeyRef.current !== key) {
       rootAutoExpandedKeyRef.current = key
-      setExplorerExpanded((current) => ({
-        ...current,
-        [explorerRoot]: true,
-      }))
+      if (!manuallyCollapsedPathsRef.current.has(explorerRoot)) {
+        setExplorerExpanded((current) => {
+          if (current[explorerRoot]) return current
+          return {
+            ...current,
+            [explorerRoot]: true,
+          }
+        })
+      }
     }
 
-    if (!explorerChildren[explorerRoot] && !explorerLoading[explorerRoot]) {
+    if (
+      !manuallyCollapsedPathsRef.current.has(explorerRoot) &&
+      !explorerChildren[explorerRoot] &&
+      !explorerLoading[explorerRoot]
+    ) {
       void ensureDirectoryLoaded(explorerRoot)
     }
   }, [
     ensureDirectoryLoaded,
     explorerChildren,
-    explorerExpanded,
     explorerLoading,
     explorerRoot,
     filesConnected,
@@ -884,15 +926,14 @@ export function AgentConsoleWindowPage() {
     const chain = buildExplorerPathChain(defaultWorkingPath)
 
     setExplorerExpanded((current) => {
-      const next = { ...current }
-      for (const path of chain) {
-        next[path] = true
-      }
-      return next
+      return applyAutoExpandChain(current, chain, manuallyCollapsedPathsRef.current)
     })
 
     void (async () => {
       for (const path of chain) {
+        if (manuallyCollapsedPathsRef.current.has(path)) {
+          continue
+        }
         try {
           await ensureDirectoryLoaded(path)
         } catch {
@@ -1043,21 +1084,42 @@ export function AgentConsoleWindowPage() {
     [keyword],
   )
 
-  const hasMatchingDescendant = useCallback(
-    (directoryPath: string): boolean => {
+  const visibleDirectoryMap = useMemo(() => {
+    const visibleByPath = new Map<string, boolean>()
+    const inStack = new Set<string>()
+
+    const resolveVisible = (directoryPath: string): boolean => {
+      if (visibleByPath.has(directoryPath)) {
+        return Boolean(visibleByPath.get(directoryPath))
+      }
+      if (inStack.has(directoryPath)) {
+        return false
+      }
+
+      inStack.add(directoryPath)
       const entries = explorerChildren[directoryPath] || []
+      let visible = false
       for (const entry of entries) {
         if (entryMatchesKeyword(entry)) {
-          return true
+          visible = true
+          break
         }
-        if (entry.type === 'dir' && hasMatchingDescendant(entry.path)) {
-          return true
+        if (entry.type === 'dir' && resolveVisible(entry.path)) {
+          visible = true
+          break
         }
       }
-      return false
-    },
-    [entryMatchesKeyword, explorerChildren],
-  )
+      inStack.delete(directoryPath)
+      visibleByPath.set(directoryPath, visible)
+      return visible
+    }
+
+    Object.keys(explorerChildren).forEach((directoryPath) => {
+      resolveVisible(directoryPath)
+    })
+    resolveVisible(explorerRoot)
+    return visibleByPath
+  }, [entryMatchesKeyword, explorerChildren, explorerRoot])
 
   const renderDirectoryBranch = useCallback(
     (directoryPath: string, depth: number): ReactNode => {
@@ -1067,7 +1129,9 @@ export function AgentConsoleWindowPage() {
       }
 
       return entries.map((entry) => {
-        const visible = entryMatchesKeyword(entry) || (entry.type === 'dir' && hasMatchingDescendant(entry.path))
+        const visible =
+          entryMatchesKeyword(entry) ||
+          (entry.type === 'dir' && Boolean(visibleDirectoryMap.get(entry.path)))
         if (!visible) {
           return null
         }
@@ -1132,9 +1196,9 @@ export function AgentConsoleWindowPage() {
       explorerErrors,
       explorerExpanded,
       explorerLoading,
-      hasMatchingDescendant,
       openFileTab,
       toggleDirectory,
+      visibleDirectoryMap,
     ],
   )
 
@@ -1213,9 +1277,34 @@ export function AgentConsoleWindowPage() {
                   <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] normal-case tracking-normal text-zinc-500">
                     文件通道：{filesStatusLabel(filesStatus)}
                   </span>
-                  <span className="normal-case tracking-normal text-zinc-400">
+                  <button
+                    className={`rounded-md border px-2 py-0.5 text-[10px] normal-case tracking-normal ${
+                      explorerRoot === defaultWorkingPath
+                        ? 'border-blue-200 bg-blue-50 text-blue-600'
+                        : 'border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50'
+                    }`}
+                    onClick={() => {
+                      switchExplorerRoot(defaultWorkingPath, 'default')
+                    }}
+                    title={`切换到默认工作目录 ${defaultWorkingPath}`}
+                    type="button"
+                  >
                     默认：{defaultWorkingPath}
-                  </span>
+                  </button>
+                  <button
+                    className={`rounded-md border px-2 py-0.5 text-[10px] normal-case tracking-normal ${
+                      explorerRoot === fileSystemRootPath
+                        ? 'border-blue-200 bg-blue-50 text-blue-600'
+                        : 'border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50'
+                    }`}
+                    onClick={() => {
+                      switchExplorerRoot(fileSystemRootPath, 'filesystem')
+                    }}
+                    title="切换到文件系统根目录 /"
+                    type="button"
+                  >
+                    根目录 /
+                  </button>
                 </div>
               </div>
 
@@ -1437,16 +1526,19 @@ export function AgentConsoleWindowPage() {
             ) : null}
 
             {item
-              ? terminalTabs.map((tab) => (
+              ? terminalTabs.map((tab) => {
+                  const tabActive = activeTab?.id === tab.id
+                  return (
                   <div
                     className={
-                      activeTab?.id === tab.id
+                      tabActive
                         ? 'relative h-full min-h-0 p-3'
                         : 'pointer-events-none absolute inset-0 h-full min-h-0 p-3 opacity-0'
                     }
                     key={tab.id}
                   >
                     <TerminalTabPane
+                      active={tabActive}
                       clusterContext={clusterContext}
                       item={item}
                       onErrorMessage={setMessage}
@@ -1455,7 +1547,8 @@ export function AgentConsoleWindowPage() {
                       }}
                     />
                   </div>
-                ))
+                  )
+                })
               : null}
 
             {activeTab?.type === 'web' ? (

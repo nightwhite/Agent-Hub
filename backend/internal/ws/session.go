@@ -43,9 +43,12 @@ const (
 	maxFileReadSize         = 1 << 20
 	maxFileDownloadSize     = 5 << 20
 	maxUploadChunkSize      = 1 << 20
-	maxConcurrentFileOp     = 5
-	fileOpQueueTimeout      = 20 * time.Second
-	fileOpExecTimeout       = 60 * time.Second
+	maxConcurrentFileReadOp = 6
+	maxConcurrentFileEditOp = 2
+	fileReadQueueTimeout    = 8 * time.Second
+	fileReadExecTimeout     = 25 * time.Second
+	fileEditQueueTimeout    = 20 * time.Second
+	fileEditExecTimeout     = 60 * time.Second
 	terminalChunkBatchBytes = 24 * 1024
 	terminalChunkBatchDelay = 8 * time.Millisecond
 	wsOutboundQueueCap      = 512
@@ -96,7 +99,8 @@ type session struct {
 	terminals map[string]*terminalSession
 	logs      map[string]*logSession
 	uploads   map[string]*uploadSession
-	fileOps   chan struct{}
+	fileReadOps chan struct{}
+	fileEditOps chan struct{}
 
 	outboundQueue     []wsOutboundMessage
 	outboundQueueCap  int
@@ -117,6 +121,11 @@ type wsOutboundMessage struct {
 	streamKey string
 }
 
+var (
+	errFileOpQueueBusy = errors.New("file operation queue busy")
+	errFileOpTimeout   = errors.New("file operation timed out")
+)
+
 func newSession(conn *websocket.Conn, requestID string, cfg config.Config, agentName, bootstrapAuth string) *session {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &session{
@@ -130,7 +139,8 @@ func newSession(conn *websocket.Conn, requestID string, cfg config.Config, agent
 		terminals:        map[string]*terminalSession{},
 		logs:             map[string]*logSession{},
 		uploads:          map[string]*uploadSession{},
-		fileOps:          make(chan struct{}, maxConcurrentFileOp),
+		fileReadOps:      make(chan struct{}, maxConcurrentFileReadOp),
+		fileEditOps:      make(chan struct{}, maxConcurrentFileEditOp),
 		writeDone:        make(chan struct{}),
 		outboundQueue:    make([]wsOutboundMessage, 0, wsOutboundQueueCap),
 		outboundQueueCap: wsOutboundQueueCap,
@@ -465,9 +475,10 @@ func (s *session) fileList(message dto.WSMessage) {
 		return
 	}
 
-	output, execErr := s.execCapture([]string{"sh", "-lc", listCommand(resolved)}, "")
+	output, execErr := s.execCapture("list", []string{"sh", "-lc", listCommand(resolved)}, "")
 	if execErr != nil {
-		s.sendError(message.RequestID, "file_list_failed", formatFileListError(execErr))
+		code, msg := mapFileOperationError("file_list_failed", "list", execErr)
+		s.sendError(message.RequestID, code, msg)
 		return
 	}
 
@@ -486,9 +497,10 @@ func (s *session) fileRead(message dto.WSMessage) {
 		return
 	}
 
-	output, execErr := s.execCapture([]string{"sh", "-lc", readCommand(resolved, maxFileReadSize+1)}, "")
+	output, execErr := s.execCapture("read", []string{"sh", "-lc", readCommand(resolved, maxFileReadSize+1)}, "")
 	if execErr != nil {
-		s.sendError(message.RequestID, "file_read_failed", formatFileOperationError(execErr))
+		code, msg := mapFileOperationError("file_read_failed", "read", execErr)
+		s.sendError(message.RequestID, code, msg)
 		return
 	}
 	if len(output) > maxFileReadSize {
@@ -510,9 +522,10 @@ func (s *session) fileDownload(message dto.WSMessage) {
 		return
 	}
 
-	output, execErr := s.execCapture([]string{"sh", "-lc", readCommand(resolved, maxFileDownloadSize+1)}, "")
+	output, execErr := s.execCapture("download", []string{"sh", "-lc", readCommand(resolved, maxFileDownloadSize+1)}, "")
 	if execErr != nil {
-		s.sendError(message.RequestID, "file_download_failed", formatFileOperationError(execErr))
+		code, msg := mapFileOperationError("file_download_failed", "download", execErr)
+		s.sendError(message.RequestID, code, msg)
 		return
 	}
 	if len(output) > maxFileDownloadSize {
@@ -535,8 +548,9 @@ func (s *session) fileWrite(message dto.WSMessage) {
 		return
 	}
 
-	if _, execErr := s.execCapture([]string{"sh", "-lc", "cat > " + shellQuote(resolved)}, getRawString(message.Data, "content")); execErr != nil {
-		s.sendError(message.RequestID, "file_write_failed", formatFileOperationError(execErr))
+	if _, execErr := s.execCapture("write", []string{"sh", "-lc", "cat > " + shellQuote(resolved)}, getRawString(message.Data, "content")); execErr != nil {
+		code, msg := mapFileOperationError("file_write_failed", "write", execErr)
+		s.sendError(message.RequestID, code, msg)
 		return
 	}
 
@@ -554,8 +568,9 @@ func (s *session) fileDelete(message dto.WSMessage) {
 		return
 	}
 
-	if _, execErr := s.execCapture([]string{"sh", "-lc", "rm -rf -- " + shellQuote(resolved)}, ""); execErr != nil {
-		s.sendError(message.RequestID, "file_delete_failed", formatFileOperationError(execErr))
+	if _, execErr := s.execCapture("delete", []string{"sh", "-lc", "rm -rf -- " + shellQuote(resolved)}, ""); execErr != nil {
+		code, msg := mapFileOperationError("file_delete_failed", "delete", execErr)
+		s.sendError(message.RequestID, code, msg)
 		return
 	}
 
@@ -573,8 +588,9 @@ func (s *session) fileMkdir(message dto.WSMessage) {
 		return
 	}
 
-	if _, execErr := s.execCapture([]string{"sh", "-lc", "mkdir -p -- " + shellQuote(resolved)}, ""); execErr != nil {
-		s.sendError(message.RequestID, "file_mkdir_failed", formatFileOperationError(execErr))
+	if _, execErr := s.execCapture("mkdir", []string{"sh", "-lc", "mkdir -p -- " + shellQuote(resolved)}, ""); execErr != nil {
+		code, msg := mapFileOperationError("file_mkdir_failed", "mkdir", execErr)
+		s.sendError(message.RequestID, code, msg)
 		return
 	}
 
@@ -640,8 +656,9 @@ func (s *session) fileUploadEnd(message dto.WSMessage) {
 		return
 	}
 
-	if _, execErr := s.execCapture([]string{"sh", "-lc", "cat > " + shellQuote(upload.Path)}, upload.Buffer.String()); execErr != nil {
-		s.sendError(message.RequestID, "file_upload_failed", formatFileOperationError(execErr))
+	if _, execErr := s.execCapture("upload", []string{"sh", "-lc", "cat > " + shellQuote(upload.Path)}, upload.Buffer.String()); execErr != nil {
+		code, msg := mapFileOperationError("file_upload_failed", "upload", execErr)
+		s.sendError(message.RequestID, code, msg)
 		return
 	}
 
@@ -654,28 +671,38 @@ func (s *session) fileUploadEnd(message dto.WSMessage) {
 	}})
 }
 
-func (s *session) execCapture(command []string, stdin string) (string, error) {
+func (s *session) execCapture(operation string, command []string, stdin string) (string, error) {
 	s.stateMu.RLock()
 	clientset := s.clientset
 	factory := s.factory
 	pod := s.pod
 	s.stateMu.RUnlock()
 
-	queueCtx, queueCancel := context.WithTimeout(s.ctx, fileOpQueueTimeout)
+	queueChannel := s.fileEditOps
+	queueTimeout := fileEditQueueTimeout
+	execTimeout := fileEditExecTimeout
+	switch operation {
+	case "list", "read", "download":
+		queueChannel = s.fileReadOps
+		queueTimeout = fileReadQueueTimeout
+		execTimeout = fileReadExecTimeout
+	}
+
+	queueCtx, queueCancel := context.WithTimeout(s.ctx, queueTimeout)
 	defer queueCancel()
 	select {
-	case s.fileOps <- struct{}{}:
+	case queueChannel <- struct{}{}:
 	case <-queueCtx.Done():
 		if errors.Is(queueCtx.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("file operation queue is busy, please retry")
+			return "", fmt.Errorf("%w: %s", errFileOpQueueBusy, operation)
 		}
 		return "", queueCtx.Err()
 	}
 	defer func() {
-		<-s.fileOps
+		<-queueChannel
 	}()
 
-	execCtx, execCancel := context.WithTimeout(s.ctx, fileOpExecTimeout)
+	execCtx, execCancel := context.WithTimeout(s.ctx, execTimeout)
 	defer execCancel()
 
 	var stdout strings.Builder
@@ -687,6 +714,9 @@ func (s *session) execCapture(command []string, stdin string) (string, error) {
 
 	err := kube.ExecInPod(execCtx, clientset, factory.RESTConfig(), factory.Namespace(), pod.Name, pod.Container, command, stdinReader, &stdout, &stderr, false, nil)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(execCtx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("%w: %s", errFileOpTimeout, operation)
+		}
 		if stderr.Len() > 0 {
 			return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
 		}
@@ -1350,6 +1380,19 @@ func formatFileOperationError(err error) string {
 		return "file operation timed out; please retry"
 	}
 	return err.Error()
+}
+
+func mapFileOperationError(defaultCode, operation string, err error) (string, string) {
+	if errors.Is(err, errFileOpQueueBusy) {
+		return "file_queue_busy", fmt.Sprintf("%s queue is busy; please retry", operation)
+	}
+	if errors.Is(err, errFileOpTimeout) || errors.Is(err, context.DeadlineExceeded) {
+		return "file_operation_timeout", fmt.Sprintf("%s timed out; please retry", operation)
+	}
+	if defaultCode == "file_list_failed" {
+		return defaultCode, formatFileListError(err)
+	}
+	return defaultCode, formatFileOperationError(err)
 }
 
 func listCommand(dir string) string {

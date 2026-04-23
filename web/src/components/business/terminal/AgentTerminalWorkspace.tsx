@@ -14,6 +14,7 @@ import {
 import { Button } from '../../ui/Button'
 
 interface AgentTerminalWorkspaceProps {
+  isVisible?: boolean
   session: TerminalSessionState | null
   onOpen?: () => void
   onReady?: () => void
@@ -59,6 +60,7 @@ const terminalTheme = {
 type DisposableLike = { dispose: () => void }
 
 export function AgentTerminalWorkspace({
+  isVisible = true,
   session,
   onOpen,
   onReady,
@@ -88,6 +90,7 @@ export function AgentTerminalWorkspace({
   const outputFlushTimerRef = useRef<number | null>(null)
   const outputWriteInFlightRef = useRef(false)
   const webglActiveRef = useRef(false)
+  const visibleRef = useRef(isVisible)
   const activeTerminalId = session?.terminalId || ''
 
   useEffect(() => {
@@ -105,6 +108,10 @@ export function AgentTerminalWorkspace({
   useEffect(() => {
     errorHandlerRef.current = onError
   }, [onError])
+
+  useEffect(() => {
+    visibleRef.current = isVisible
+  }, [isVisible])
 
   useEffect(() => {
     connectedTerminalIdRef.current = ''
@@ -218,11 +225,13 @@ export function AgentTerminalWorkspace({
         if (outputWriteInFlightRef.current) return
         if (outputFlushFrameRef.current !== null || outputFlushTimerRef.current !== null) return
 
-        if (mode === 'immediate') {
+        const scheduleMode = visibleRef.current ? mode : 'frame'
+
+        if (scheduleMode === 'immediate') {
           outputFlushTimerRef.current = window.setTimeout(() => {
             outputFlushTimerRef.current = null
             flushOutputQueue()
-          }, 0)
+          }, 4)
           return
         }
 
@@ -241,10 +250,11 @@ export function AgentTerminalWorkspace({
         let head = outputQueueHeadRef.current
         if (head >= queue.length) return
 
-        let remaining =
-          resolveTerminalFlushMode(outputQueuedCharsRef.current) === 'burst'
-            ? terminalOutputBurstCharsPerFlush
-            : terminalOutputCharsPerFlush
+        const flushMode = resolveTerminalFlushMode(outputQueuedCharsRef.current)
+        let remaining = flushMode === 'burst' ? terminalOutputBurstCharsPerFlush : terminalOutputCharsPerFlush
+        if (!visibleRef.current) {
+          remaining = Math.min(remaining, 8 * 1024)
+        }
         const parts: string[] = []
         while (remaining > 0 && head < queue.length) {
           const chunk = queue[head]

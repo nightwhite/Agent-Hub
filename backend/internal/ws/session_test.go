@@ -259,6 +259,30 @@ func TestFormatFileOperationErrorReturnsFriendlyTimeout(t *testing.T) {
 	}
 }
 
+func TestMapFileOperationErrorClassifiesQueueBusy(t *testing.T) {
+	t.Parallel()
+
+	code, message := mapFileOperationError("file_read_failed", "read", errFileOpQueueBusy)
+	if code != "file_queue_busy" {
+		t.Fatalf("code = %q, want file_queue_busy", code)
+	}
+	if !strings.Contains(message, "queue is busy") {
+		t.Fatalf("message = %q, want queue busy hint", message)
+	}
+}
+
+func TestMapFileOperationErrorClassifiesTimeout(t *testing.T) {
+	t.Parallel()
+
+	code, message := mapFileOperationError("file_read_failed", "read", errFileOpTimeout)
+	if code != "file_operation_timeout" {
+		t.Fatalf("code = %q, want file_operation_timeout", code)
+	}
+	if !strings.Contains(message, "timed out") {
+		t.Fatalf("message = %q, want timeout hint", message)
+	}
+}
+
 func TestBinaryFrameRoundTripTerminalOutput(t *testing.T) {
 	t.Parallel()
 

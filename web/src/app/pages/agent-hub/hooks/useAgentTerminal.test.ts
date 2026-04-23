@@ -1,6 +1,7 @@
 import {
   applyTerminalOutputBackpressure,
   resolveTerminalFlushMode,
+  terminalOutputQueueCharLimit,
 } from '../../../../components/business/terminal/terminalOutputScheduler'
 
 describe('terminal output scheduling', () => {
@@ -33,5 +34,6 @@ describe('terminal output scheduling', () => {
       chunk.includes('已跳过部分历史内容'),
     ).length
     expect(secondNoticeCount).toBe(1)
+    expect(state.queuedChars).toBeLessThanOrEqual(terminalOutputQueueCharLimit)
   })
 })
