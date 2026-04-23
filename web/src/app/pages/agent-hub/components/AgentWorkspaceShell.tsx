@@ -101,7 +101,7 @@ export function AgentWorkspaceShell({
   useEffect(() => {
     if (!showHeaderSearch) return
 
-    const normalizedDraft = headerSearchDraft.trim() ? headerSearchDraft : ''
+    const normalizedDraft = headerSearchDraft.trim()
     if (normalizedDraft === headerSearchValue) return
 
     const timer = window.setTimeout(() => {
