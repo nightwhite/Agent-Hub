@@ -25,7 +25,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.62)] p-4 backdrop-blur-[1.5px]">
       <div
-        className={`flex max-h-[88vh] w-full flex-col overflow-hidden rounded-[18px] border border-white/70 bg-white shadow-[0_34px_90px_rgba(15,23,42,0.24),0_10px_26px_rgba(15,23,42,0.12)] ${widthClassName}`}
+        className={`flex max-h-[88vh] w-full flex-col overflow-hidden rounded-[18px] border border-white/70 bg-white shadow-[var(--shadow-modal)] ${widthClassName}`}
       >
         <div className="flex items-start justify-between border-b border-[var(--color-border)] px-6 py-5">
           <div className="space-y-1">
