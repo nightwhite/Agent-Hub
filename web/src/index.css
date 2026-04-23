@@ -125,19 +125,6 @@ a {
 }
 
 @layer components {
-  .btn-primary {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-[10px] border border-[var(--color-brand)] bg-[var(--color-brand)] px-4 text-[14px] font-semibold whitespace-nowrap text-white transition-all;
-    box-shadow: 0 10px 20px rgba(37, 99, 255, 0.18);
-  }
-
-  .btn-primary:hover {
-    @apply border-[var(--color-brand-hover)] bg-[var(--color-brand-hover)];
-  }
-
-  .btn-primary:disabled {
-    @apply pointer-events-none opacity-50;
-  }
-
   .card {
     @apply rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)];
     box-shadow: var(--shadow-sm);
@@ -153,7 +140,7 @@ a {
   }
 
   .field-input {
-    @apply w-full rounded-[10px] border border-[var(--color-border)] bg-white py-2 text-[var(--color-text)] shadow-[0_1px_2px_rgba(24,24,27,0.04)] outline-none transition-all;
+    @apply w-full rounded-[10px] border border-[var(--color-border)] bg-white py-2 text-[var(--color-text)] shadow-[var(--shadow-sm)] outline-none transition-all;
     @apply placeholder:text-[var(--color-muted)] focus:border-[var(--color-brand)] focus:ring-4 focus:ring-[rgba(37,99,255,0.12)];
   }
 
