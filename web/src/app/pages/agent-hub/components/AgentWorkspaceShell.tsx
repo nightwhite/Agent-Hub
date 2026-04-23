@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { APP_NAME } from '../../../../branding'
@@ -30,9 +30,11 @@ function SparkLogo() {
 }
 
 function resolveView(pathname: string): ShellView {
-  if (pathname === '/agents/templates') return 'market'
-  if (pathname === '/agents/create') return 'create'
-  if (pathname.startsWith('/agents/')) return 'detail'
+  const normalizedPathname = pathname.replace(/\/+$/, '') || '/'
+
+  if (normalizedPathname === '/agents/templates') return 'market'
+  if (normalizedPathname === '/agents/create') return 'create'
+  if (normalizedPathname.startsWith('/agents/')) return 'detail'
   return 'agents'
 }
 
@@ -87,19 +89,36 @@ export function AgentWorkspaceShell({
   const showCreateStepper = view === 'create'
   const showHeaderSearch = view === 'agents' || view === 'market'
   const headerSearchValue = showHeaderSearch ? String(searchParams.get('q') || '') : ''
+  const [headerSearchDraft, setHeaderSearchDraft] = useState(headerSearchValue)
   const headerSearchPlaceholder = view === 'market' ? '搜索模板、能力或标签' : '搜索别名或实例名'
   const showBack = view !== 'agents'
   const backTarget = view === 'create' ? '/agents/templates' : '/agents'
 
-  const handleHeaderSearchChange = (value: string) => {
+  useEffect(() => {
+    setHeaderSearchDraft(headerSearchValue)
+  }, [headerSearchValue])
+
+  useEffect(() => {
     if (!showHeaderSearch) return
-    const next = new URLSearchParams(searchParams)
-    if (value.trim()) {
-      next.set('q', value)
-    } else {
-      next.delete('q')
-    }
-    setSearchParams(next, { replace: true })
+
+    const normalizedDraft = headerSearchDraft.trim() ? headerSearchDraft : ''
+    if (normalizedDraft === headerSearchValue) return
+
+    const timer = window.setTimeout(() => {
+      const next = new URLSearchParams(location.search)
+      if (normalizedDraft) {
+        next.set('q', normalizedDraft)
+      } else {
+        next.delete('q')
+      }
+      setSearchParams(next, { replace: true })
+    }, 240)
+
+    return () => window.clearTimeout(timer)
+  }, [headerSearchDraft, headerSearchValue, location.search, setSearchParams, showHeaderSearch])
+
+  const handleHeaderSearchChange = (value: string) => {
+    setHeaderSearchDraft(value)
   }
 
   const renderTopActions = () => {
@@ -159,7 +178,7 @@ export function AgentWorkspaceShell({
                   className="w-full min-w-[220px] sm:w-[280px] lg:w-[360px]"
                   onChange={(event) => handleHeaderSearchChange(event.target.value)}
                   placeholder={headerSearchPlaceholder}
-                  value={headerSearchValue}
+                  value={headerSearchDraft}
                 />
               ) : null}
 
