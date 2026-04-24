@@ -4,6 +4,7 @@ import {
   buildExplorerPathChain,
   isTrustedDesktopMessageOrigin,
 } from './lib/consoleExplorerHelpers'
+import { createInitialConsoleTabs, initialConsoleTabId } from './lib/consoleTabs'
 
 describe('AgentConsoleWindowPage helpers', () => {
   it('builds path chain from working directory', () => {
@@ -36,5 +37,16 @@ describe('AgentConsoleWindowPage helpers', () => {
     expect(isTrustedDesktopMessageOrigin('https://usw-1.sealos.io', 'https://usw-1.sealos.io')).toBe(true)
     expect(isTrustedDesktopMessageOrigin('http://localhost:3000', 'https://usw-1.sealos.io')).toBe(true)
     expect(isTrustedDesktopMessageOrigin('https://example.com', 'https://usw-1.sealos.io')).toBe(false)
+  })
+
+  it('creates a fresh home-only tab list for agent switches', () => {
+    const first = createInitialConsoleTabs()
+    const second = createInitialConsoleTabs()
+
+    first.push({ id: 'file-1', type: 'home', title: 'mutated' })
+
+    expect(second).toEqual([
+      { id: initialConsoleTabId, type: 'home', title: '控制台首页' },
+    ])
   })
 })

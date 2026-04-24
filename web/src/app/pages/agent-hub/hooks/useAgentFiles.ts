@@ -1604,6 +1604,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     }
 
     socket.addEventListener('message', (event) => {
+      if (socketRef.current !== socket) return
       if (!(event.data instanceof ArrayBuffer)) return
 
       let messagePayload: ReturnType<typeof decodeWSBinaryMessage> | null = null
@@ -1689,6 +1690,8 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     })
 
     socket.addEventListener('error', () => {
+      if (socketRef.current !== socket) return
+
       socketReadyRef.current = false
       readyGate.reject(new Error('文件连接异常，请关闭后重新打开。'))
       rejectPendingRequests('文件连接异常，请关闭后重新打开。')
@@ -1705,6 +1708,8 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
     })
 
     socket.addEventListener('close', (event) => {
+      if (socketRef.current !== socket) return
+
       const closeMessage =
         event.code && event.code !== 1000 ? `文件连接已关闭（code=${event.code}）` : '文件连接已关闭'
       readyGate.reject(new Error(closeMessage))
@@ -1798,7 +1803,6 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
 
   const openFiles = useCallback((item: AgentListItem) => {
     resetDirectoryListings()
-    browseRequestSeqRef.current = 0
     reconnectAttemptsRef.current = 0
     clearReconnectTimer()
     activeResourceRef.current = item

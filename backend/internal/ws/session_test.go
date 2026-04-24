@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -330,6 +331,88 @@ func TestDecodeWSBinaryMessageRejectsUnsupportedVersion(t *testing.T) {
 	frame[1] = wsBinaryTypeCodeByName["ping"]
 	if _, err := decodeWSBinaryMessage(frame); err == nil {
 		t.Fatal("decodeWSBinaryMessage() should fail for unsupported frame version")
+	}
+}
+
+func TestWSReadLimitAllowsMaximumUploadChunkFrame(t *testing.T) {
+	t.Parallel()
+
+	chunk := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", maxUploadChunkSize)))
+	frame, err := encodeWSBinaryMessage(dto.WSMessage{
+		Type:      "file.upload.chunk",
+		RequestID: "req-upload-chunk",
+		Data: map[string]any{
+			"id":    "upload-1",
+			"chunk": chunk,
+		},
+	})
+	if err != nil {
+		t.Fatalf("encodeWSBinaryMessage() error = %v", err)
+	}
+	if len(frame) > wsReadLimit {
+		t.Fatalf("maximum upload chunk frame len = %d, want <= wsReadLimit %d", len(frame), wsReadLimit)
+	}
+}
+
+func TestFileUploadBeginEnforcesSessionCap(t *testing.T) {
+	t.Parallel()
+
+	s := newSession(nil, "req-upload-cap", config.Config{}, "agent-hub", "")
+	for i := 0; i < maxConcurrentUploads; i++ {
+		id := "upload-" + string(rune('a'+i))
+		s.uploads[id] = &uploadSession{ID: id, Path: "/tmp/" + id}
+	}
+
+	s.fileUploadBegin(dto.WSMessage{
+		Type:      "file.upload.begin",
+		RequestID: "req-upload-begin",
+		Data: map[string]any{
+			"id":   "upload-overflow",
+			"path": "/tmp/overflow.txt",
+		},
+	})
+
+	if len(s.uploads) != maxConcurrentUploads {
+		t.Fatalf("uploads len = %d, want %d", len(s.uploads), maxConcurrentUploads)
+	}
+	if _, exists := s.uploads["upload-overflow"]; exists {
+		t.Fatalf("overflow upload session should not be created")
+	}
+	if len(s.outboundQueue) != 1 {
+		t.Fatalf("outbound queue len = %d, want 1", len(s.outboundQueue))
+	}
+	message := s.outboundQueue[0].message
+	if message.Type != "error" || getRawString(message.Data, "code") != "upload_queue_busy" {
+		t.Fatalf("queued message = %#v, want upload_queue_busy error", message)
+	}
+}
+
+func TestFileUploadChunkRejectsTotalSizeOverflowAndClearsUpload(t *testing.T) {
+	t.Parallel()
+
+	s := newSession(nil, "req-upload-overflow", config.Config{}, "agent-hub", "")
+	upload := &uploadSession{ID: "upload-1", Path: "/tmp/large.txt"}
+	upload.Buffer.WriteString(strings.Repeat("x", maxFileUploadSize))
+	s.uploads[upload.ID] = upload
+
+	s.fileUploadChunk(dto.WSMessage{
+		Type:      "file.upload.chunk",
+		RequestID: "req-upload-chunk",
+		Data: map[string]any{
+			"id":    upload.ID,
+			"chunk": base64.StdEncoding.EncodeToString([]byte("x")),
+		},
+	})
+
+	if s.lookupUpload(upload.ID) != nil {
+		t.Fatalf("upload session should be cleared after size overflow")
+	}
+	if len(s.outboundQueue) != 1 {
+		t.Fatalf("outbound queue len = %d, want 1", len(s.outboundQueue))
+	}
+	message := s.outboundQueue[0].message
+	if message.Type != "error" || getRawString(message.Data, "code") != "file_too_large" {
+		t.Fatalf("queued message = %#v, want file_too_large error", message)
 	}
 }
 

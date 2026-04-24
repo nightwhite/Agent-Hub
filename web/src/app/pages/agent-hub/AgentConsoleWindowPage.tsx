@@ -47,6 +47,7 @@ import {
   isTrustedDesktopMessageOrigin,
   normalizeExplorerPath,
 } from './lib/consoleExplorerHelpers'
+import { createInitialConsoleTabs, initialConsoleTabId } from './lib/consoleTabs'
 import { parseAgentTerminalDesktopMessage } from './lib/desktopMessages'
 
 const defaultConsoleTitle = 'Agent 控制台'
@@ -93,7 +94,6 @@ type ExplorerChildrenMap = Record<string, AgentFileItem[]>
 type ExplorerFlagMap = Record<string, boolean>
 type ExplorerErrorMap = Record<string, string>
 
-const initialTabs: ConsoleTab[] = [{ id: 'home', type: 'home', title: '控制台首页' }]
 const fileSystemRootPath = explorerFileSystemRootPath
 
 const iconForTab = (tab: ConsoleTab) => {
@@ -311,8 +311,8 @@ export function AgentConsoleWindowPage() {
   const [workspaceRoot, setWorkspaceRoot] = useState('')
   const [message, setMessage] = useState('')
   const [resourceSearch, setResourceSearch] = useState('')
-  const [tabs, setTabs] = useState<ConsoleTab[]>(initialTabs)
-  const [activeTabId, setActiveTabId] = useState('home')
+  const [tabs, setTabs] = useState<ConsoleTab[]>(() => createInitialConsoleTabs())
+  const [activeTabId, setActiveTabId] = useState(initialConsoleTabId)
   const [terminalStates, setTerminalStates] = useState<TerminalTabStateMap>({})
 
   const [explorerChildren, setExplorerChildren] = useState<ExplorerChildrenMap>({})
@@ -466,7 +466,7 @@ export function AgentConsoleWindowPage() {
 
   const closeTab = useCallback(
     (targetId: string) => {
-      if (targetId === 'home') return
+      if (targetId === initialConsoleTabId) return
 
       setTabs((current) => {
         if (current.length <= 1) return current
@@ -847,6 +847,10 @@ export function AgentConsoleWindowPage() {
   }, [activeAgentName, clusterContext])
 
   useEffect(() => {
+    setTabs(createInitialConsoleTabs())
+    setActiveTabId(initialConsoleTabId)
+    setTerminalStates({})
+    tabSeedRef.current = 1
     setExplorerChildren({})
     setExplorerExpanded({})
     setExplorerLoading({})
@@ -1247,7 +1251,7 @@ export function AgentConsoleWindowPage() {
                 <button
                   className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 hover:bg-zinc-50"
                   onClick={() => {
-                    setActiveTabId('home')
+                    setActiveTabId(initialConsoleTabId)
                   }}
                   title="控制台首页"
                   type="button"

@@ -35,14 +35,16 @@ const (
 	terminalHomeDir         = "/opt/data/home"
 	terminalInstallDir      = "/opt/hermes"
 	terminalRuntimeRoot     = "/opt/data"
-	wsReadLimit             = 1 << 20
+	wsReadLimit             = 2 << 20
 	wsWriteWait             = 10 * time.Second
 	wsPongWait              = 60 * time.Second
 	wsPingPeriod            = (wsPongWait * 9) / 10
 	wsAuthTimeout           = 15 * time.Second
 	maxFileReadSize         = 1 << 20
 	maxFileDownloadSize     = 5 << 20
+	maxFileUploadSize       = maxFileDownloadSize
 	maxUploadChunkSize      = 1 << 20
+	maxConcurrentUploads    = 4
 	maxConcurrentFileReadOp = 6
 	maxConcurrentFileEditOp = 2
 	fileReadQueueTimeout    = 8 * time.Second
@@ -96,9 +98,9 @@ type session struct {
 	clientset     *kubernetes.Clientset
 	pod           kube.PodRef
 
-	terminals map[string]*terminalSession
-	logs      map[string]*logSession
-	uploads   map[string]*uploadSession
+	terminals   map[string]*terminalSession
+	logs        map[string]*logSession
+	uploads     map[string]*uploadSession
 	fileReadOps chan struct{}
 	fileEditOps chan struct{}
 
@@ -610,6 +612,11 @@ func (s *session) fileUploadBegin(message dto.WSMessage) {
 	}
 
 	s.stateMu.Lock()
+	if _, exists := s.uploads[id]; !exists && len(s.uploads) >= maxConcurrentUploads {
+		s.stateMu.Unlock()
+		s.sendError(message.RequestID, "upload_queue_busy", "too many upload sessions are open")
+		return
+	}
 	s.uploads[id] = &uploadSession{ID: id, Path: resolved}
 	s.stateMu.Unlock()
 
@@ -639,6 +646,11 @@ func (s *session) fileUploadChunk(message dto.WSMessage) {
 		s.sendError(message.RequestID, "chunk_too_large", "upload chunk exceeds maximum size")
 		return
 	}
+	if upload.Buffer.Len()+len(decoded) > maxFileUploadSize {
+		s.removeUpload(id)
+		s.sendError(message.RequestID, "file_too_large", "upload exceeds maximum file size")
+		return
+	}
 
 	upload.Buffer.Write(decoded)
 	s.send(dto.WSMessage{Type: "file.result", RequestID: message.RequestID, Data: map[string]any{
@@ -657,6 +669,7 @@ func (s *session) fileUploadEnd(message dto.WSMessage) {
 	}
 
 	if _, execErr := s.execCapture("upload", []string{"sh", "-lc", "cat > " + shellQuote(upload.Path)}, upload.Buffer.String()); execErr != nil {
+		s.removeUpload(id)
 		code, msg := mapFileOperationError("file_upload_failed", "upload", execErr)
 		s.sendError(message.RequestID, code, msg)
 		return
