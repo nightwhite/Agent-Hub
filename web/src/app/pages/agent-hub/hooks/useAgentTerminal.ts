@@ -5,12 +5,7 @@ import type {
   ClusterContext,
   TerminalSessionState,
 } from '../../../../domains/agents/types'
-
-type TerminalMessage = {
-  type?: string
-  requestId?: string
-  data?: Record<string, unknown>
-}
+import { decodeWSBinaryMessage, encodeWSBinaryMessage } from '../lib/wsBinaryProtocol'
 
 type TerminalOutputListener = (chunk: string) => void
 
@@ -18,6 +13,7 @@ const fallbackTerminalCwd = '/opt/hermes'
 const maxBufferedOutputChunks = 200
 const reconnectDelaySchedule = [600, 1200, 2400, 5000]
 const maxReconnectAttempts = 6
+const droppedOutputNotice = '\r\n\x1b[33m[服务端高压保护：已跳过部分历史输出以保持交互]\x1b[0m\r\n'
 
 const createTerminalSession = (
   resource: AgentListItem,
@@ -99,7 +95,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
     }
 
     socket.send(
-      JSON.stringify({
+      encodeWSBinaryMessage({
         type: 'terminal.resize',
         requestId: nextRequestId('terminal.resize'),
         data: {
@@ -171,6 +167,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
     closeSocket()
 
     const socket = new WebSocket(plan.wsUrl)
+    socket.binaryType = 'arraybuffer'
     socketRef.current = socket
     authSentRef.current = false
     terminalOpenSentRef.current = false
@@ -181,7 +178,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
 
       authSentRef.current = true
       socket.send(
-        JSON.stringify({
+        encodeWSBinaryMessage({
           type: 'auth',
           requestId: nextRequestId('terminal.auth'),
           data: {
@@ -197,7 +194,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
 
       terminalOpenSentRef.current = true
       socket.send(
-        JSON.stringify({
+        encodeWSBinaryMessage({
           type: 'terminal.open',
           requestId: nextRequestId('terminal.open'),
           data: {
@@ -211,9 +208,11 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
     socket.addEventListener('message', (event) => {
       if (version !== requestVersionRef.current) return
 
-      let messagePayload: TerminalMessage | null = null
+      if (!(event.data instanceof ArrayBuffer)) return
+
+      let messagePayload: ReturnType<typeof decodeWSBinaryMessage> | null = null
       try {
-        messagePayload = JSON.parse(String(event.data || '{}'))
+        messagePayload = decodeWSBinaryMessage(event.data)
       } catch {
         return
       }
@@ -268,6 +267,9 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
           return
         case 'terminal.output':
           if (messageTerminalID !== plan.terminalId) return
+          if (data.dropped) {
+            emitOutput(droppedOutputNotice)
+          }
           emitOutput(String(data.output || ''))
           return
         case 'terminal.closed':
@@ -393,6 +395,18 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
 
   const openTerminal = useCallback(
     async (resource: AgentListItem) => {
+      const current = terminalSessionRef.current
+      const socket = socketRef.current
+      if (
+        current &&
+        current.resource.name === resource.name &&
+        (current.status === 'connected' || current.status === 'connecting' || current.status === 'reconnecting') &&
+        socket &&
+        socket.readyState === WebSocket.OPEN
+      ) {
+        return
+      }
+
       requestVersionRef.current += 1
       const version = requestVersionRef.current
 
@@ -448,7 +462,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
       }
 
       socket.send(
-        JSON.stringify({
+        encodeWSBinaryMessage({
           type: 'terminal.input',
           requestId: nextRequestId('terminal.input'),
           data: {
@@ -523,7 +537,7 @@ export function useAgentTerminal({ clusterContext, onErrorMessage }: UseAgentTer
     const current = terminalSessionRef.current
     if (socket && socket.readyState === WebSocket.OPEN && current?.terminalId) {
       socket.send(
-        JSON.stringify({
+        encodeWSBinaryMessage({
           type: 'terminal.close',
           requestId: nextRequestId('terminal.close'),
           data: {

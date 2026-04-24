@@ -2,9 +2,11 @@ package ws
 
 import (
 	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 
+	"github.com/nightwhite/Agent-Hub/internal/config"
 	"github.com/nightwhite/Agent-Hub/internal/dto"
 )
 
@@ -214,6 +216,30 @@ func TestListCommandUsesStatForFileSize(t *testing.T) {
 	}
 }
 
+func TestReadCommandUsesBoundedHead(t *testing.T) {
+	t.Parallel()
+
+	command := readCommand("/opt/hermes/notes/today.txt", 1025)
+	if !strings.Contains(command, "[ -f \"$file\" ]") {
+		t.Fatalf("readCommand() = %q, want file existence guard", command)
+	}
+	if !strings.Contains(command, "head -c 1025") {
+		t.Fatalf("readCommand() = %q, want bounded head read", command)
+	}
+	if !strings.Contains(command, "dd if=\"$file\" bs=1 count=1025") {
+		t.Fatalf("readCommand() = %q, want dd fallback when head is unavailable", command)
+	}
+}
+
+func TestReadCommandNormalizesNonPositiveLimit(t *testing.T) {
+	t.Parallel()
+
+	command := readCommand("/tmp/a.txt", 0)
+	if !strings.Contains(command, "head -c 1") {
+		t.Fatalf("readCommand() = %q, want minimum 1 byte limit", command)
+	}
+}
+
 func TestFormatFileListErrorReturnsFriendlyTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -221,5 +247,270 @@ func TestFormatFileListErrorReturnsFriendlyTimeout(t *testing.T) {
 	want := "directory listing timed out; the directory may contain too many entries or the container filesystem is slow"
 	if got != want {
 		t.Fatalf("formatFileListError() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatFileOperationErrorReturnsFriendlyTimeout(t *testing.T) {
+	t.Parallel()
+
+	got := formatFileOperationError(context.DeadlineExceeded)
+	want := "file operation timed out; please retry"
+	if got != want {
+		t.Fatalf("formatFileOperationError() = %q, want %q", got, want)
+	}
+}
+
+func TestMapFileOperationErrorClassifiesQueueBusy(t *testing.T) {
+	t.Parallel()
+
+	code, message := mapFileOperationError("file_read_failed", "read", errFileOpQueueBusy)
+	if code != "file_queue_busy" {
+		t.Fatalf("code = %q, want file_queue_busy", code)
+	}
+	if !strings.Contains(message, "queue is busy") {
+		t.Fatalf("message = %q, want queue busy hint", message)
+	}
+}
+
+func TestMapFileOperationErrorClassifiesTimeout(t *testing.T) {
+	t.Parallel()
+
+	code, message := mapFileOperationError("file_read_failed", "read", errFileOpTimeout)
+	if code != "file_operation_timeout" {
+		t.Fatalf("code = %q, want file_operation_timeout", code)
+	}
+	if !strings.Contains(message, "timed out") {
+		t.Fatalf("message = %q, want timeout hint", message)
+	}
+}
+
+func TestBinaryFrameRoundTripTerminalOutput(t *testing.T) {
+	t.Parallel()
+
+	original := dto.WSMessage{
+		Type:      "terminal.output",
+		RequestID: "req-1",
+		Data: map[string]any{
+			"id":     "term-1",
+			"output": "hello world\n",
+			"extra":  "value",
+		},
+	}
+
+	encoded, err := encodeWSBinaryMessage(original)
+	if err != nil {
+		t.Fatalf("encodeWSBinaryMessage() error = %v", err)
+	}
+
+	decoded, err := decodeWSBinaryMessage(encoded)
+	if err != nil {
+		t.Fatalf("decodeWSBinaryMessage() error = %v", err)
+	}
+	if decoded.Type != original.Type {
+		t.Fatalf("decoded.Type = %q, want %q", decoded.Type, original.Type)
+	}
+	if decoded.RequestID != original.RequestID {
+		t.Fatalf("decoded.RequestID = %q, want %q", decoded.RequestID, original.RequestID)
+	}
+	if got := getRawString(decoded.Data, "id"); got != "term-1" {
+		t.Fatalf("decoded id = %q, want term-1", got)
+	}
+	if got := getRawString(decoded.Data, "output"); got != "hello world\n" {
+		t.Fatalf("decoded output = %q, want %q", got, "hello world\n")
+	}
+	if got := getRawString(decoded.Data, "extra"); got != "value" {
+		t.Fatalf("decoded extra = %q, want value", got)
+	}
+}
+
+func TestDecodeWSBinaryMessageRejectsUnsupportedVersion(t *testing.T) {
+	t.Parallel()
+
+	frame := make([]byte, wsBinaryV2HeaderSize)
+	frame[0] = 1
+	frame[1] = wsBinaryTypeCodeByName["ping"]
+	if _, err := decodeWSBinaryMessage(frame); err == nil {
+		t.Fatal("decodeWSBinaryMessage() should fail for unsupported frame version")
+	}
+}
+
+func TestWSReadLimitAllowsMaximumUploadChunkFrame(t *testing.T) {
+	t.Parallel()
+
+	chunk := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", maxUploadChunkSize)))
+	frame, err := encodeWSBinaryMessage(dto.WSMessage{
+		Type:      "file.upload.chunk",
+		RequestID: "req-upload-chunk",
+		Data: map[string]any{
+			"id":    "upload-1",
+			"chunk": chunk,
+		},
+	})
+	if err != nil {
+		t.Fatalf("encodeWSBinaryMessage() error = %v", err)
+	}
+	if len(frame) > wsReadLimit {
+		t.Fatalf("maximum upload chunk frame len = %d, want <= wsReadLimit %d", len(frame), wsReadLimit)
+	}
+}
+
+func TestFileUploadBeginEnforcesSessionCap(t *testing.T) {
+	t.Parallel()
+
+	s := newSession(nil, "req-upload-cap", config.Config{}, "agent-hub", "")
+	for i := 0; i < maxConcurrentUploads; i++ {
+		id := "upload-" + string(rune('a'+i))
+		s.uploads[id] = &uploadSession{ID: id, Path: "/tmp/" + id}
+	}
+
+	s.fileUploadBegin(dto.WSMessage{
+		Type:      "file.upload.begin",
+		RequestID: "req-upload-begin",
+		Data: map[string]any{
+			"id":   "upload-overflow",
+			"path": "/tmp/overflow.txt",
+		},
+	})
+
+	if len(s.uploads) != maxConcurrentUploads {
+		t.Fatalf("uploads len = %d, want %d", len(s.uploads), maxConcurrentUploads)
+	}
+	if _, exists := s.uploads["upload-overflow"]; exists {
+		t.Fatalf("overflow upload session should not be created")
+	}
+	if len(s.outboundQueue) != 1 {
+		t.Fatalf("outbound queue len = %d, want 1", len(s.outboundQueue))
+	}
+	message := s.outboundQueue[0].message
+	if message.Type != "error" || getRawString(message.Data, "code") != "upload_queue_busy" {
+		t.Fatalf("queued message = %#v, want upload_queue_busy error", message)
+	}
+}
+
+func TestFileUploadChunkRejectsTotalSizeOverflowAndClearsUpload(t *testing.T) {
+	t.Parallel()
+
+	s := newSession(nil, "req-upload-overflow", config.Config{}, "agent-hub", "")
+	upload := &uploadSession{ID: "upload-1", Path: "/tmp/large.txt"}
+	upload.Buffer.WriteString(strings.Repeat("x", maxFileUploadSize))
+	s.uploads[upload.ID] = upload
+
+	s.fileUploadChunk(dto.WSMessage{
+		Type:      "file.upload.chunk",
+		RequestID: "req-upload-chunk",
+		Data: map[string]any{
+			"id":    upload.ID,
+			"chunk": base64.StdEncoding.EncodeToString([]byte("x")),
+		},
+	})
+
+	if s.lookupUpload(upload.ID) != nil {
+		t.Fatalf("upload session should be cleared after size overflow")
+	}
+	if len(s.outboundQueue) != 1 {
+		t.Fatalf("outbound queue len = %d, want 1", len(s.outboundQueue))
+	}
+	message := s.outboundQueue[0].message
+	if message.Type != "error" || getRawString(message.Data, "code") != "file_too_large" {
+		t.Fatalf("queued message = %#v, want file_too_large error", message)
+	}
+}
+
+func TestEnqueueOutboundDropsOldestStreamAndMarksCurrentChunk(t *testing.T) {
+	t.Parallel()
+
+	s := newSession(nil, "req-queue", config.Config{}, "agent-hub", "")
+	s.outboundQueueCap = 2
+
+	if ok := s.enqueueOutbound(dto.WSMessage{
+		Type: "terminal.output",
+		Data: map[string]any{
+			"id":     "term-1",
+			"output": "chunk-1",
+		},
+	}); !ok {
+		t.Fatal("enqueueOutbound(chunk-1) should succeed")
+	}
+	if ok := s.enqueueOutbound(dto.WSMessage{
+		Type: "terminal.output",
+		Data: map[string]any{
+			"id":     "term-1",
+			"output": "chunk-2",
+		},
+	}); !ok {
+		t.Fatal("enqueueOutbound(chunk-2) should succeed")
+	}
+	if ok := s.enqueueOutbound(dto.WSMessage{
+		Type: "terminal.output",
+		Data: map[string]any{
+			"id":     "term-1",
+			"output": "chunk-3",
+		},
+	}); !ok {
+		t.Fatal("enqueueOutbound(chunk-3) should succeed")
+	}
+
+	if len(s.outboundQueue) != 2 {
+		t.Fatalf("outbound queue len = %d, want 2", len(s.outboundQueue))
+	}
+
+	first := s.outboundQueue[0].message
+	second := s.outboundQueue[1].message
+	if got := getRawString(first.Data, "output"); got != "chunk-2" {
+		t.Fatalf("first queued output = %q, want chunk-2", got)
+	}
+	if got := getRawString(second.Data, "output"); got != "chunk-3" {
+		t.Fatalf("second queued output = %q, want chunk-3", got)
+	}
+	if dropped, _ := second.Data["dropped"].(bool); !dropped {
+		t.Fatalf("second queued output should include dropped marker, got %#v", second.Data["dropped"])
+	}
+	if droppedCount := int(getNumber(second.Data, "droppedCount")); droppedCount != 1 {
+		t.Fatalf("droppedCount = %d, want 1", droppedCount)
+	}
+}
+
+func TestEnqueueOutboundPreservesControlMessagesUnderPressure(t *testing.T) {
+	t.Parallel()
+
+	s := newSession(nil, "req-control", config.Config{}, "agent-hub", "")
+	s.outboundQueueCap = 2
+
+	if ok := s.enqueueOutbound(dto.WSMessage{
+		Type: "terminal.output",
+		Data: map[string]any{
+			"id":     "term-1",
+			"output": "chunk-1",
+		},
+	}); !ok {
+		t.Fatal("enqueueOutbound(chunk-1) should succeed")
+	}
+	if ok := s.enqueueOutbound(dto.WSMessage{
+		Type: "terminal.output",
+		Data: map[string]any{
+			"id":     "term-1",
+			"output": "chunk-2",
+		},
+	}); !ok {
+		t.Fatal("enqueueOutbound(chunk-2) should succeed")
+	}
+	if ok := s.enqueueOutbound(dto.WSMessage{
+		Type: "error",
+		Data: map[string]any{
+			"code":    "test",
+			"message": "must-not-drop",
+		},
+	}); !ok {
+		t.Fatal("enqueueOutbound(error) should succeed")
+	}
+
+	if len(s.outboundQueue) != 2 {
+		t.Fatalf("outbound queue len = %d, want 2", len(s.outboundQueue))
+	}
+	if s.outboundQueue[0].message.Type != "terminal.output" {
+		t.Fatalf("first queued type = %s, want terminal.output", s.outboundQueue[0].message.Type)
+	}
+	if s.outboundQueue[1].message.Type != "error" {
+		t.Fatalf("second queued type = %s, want error", s.outboundQueue[1].message.Type)
 	}
 }

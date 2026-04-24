@@ -5,9 +5,16 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { LoaderCircle, Terminal as TerminalIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { TerminalSessionState } from '../../../domains/agents/types'
+import {
+  applyTerminalOutputBackpressure,
+  resolveTerminalFlushMode,
+  terminalOutputBurstCharsPerFlush,
+  terminalOutputCharsPerFlush,
+} from './terminalOutputScheduler'
 import { Button } from '../../ui/Button'
 
 interface AgentTerminalWorkspaceProps {
+  isVisible?: boolean
   session: TerminalSessionState | null
   onOpen?: () => void
   onReady?: () => void
@@ -50,7 +57,10 @@ const terminalTheme = {
   brightWhite: '#f8fafc',
 }
 
+type DisposableLike = { dispose: () => void }
+
 export function AgentTerminalWorkspace({
+  isVisible = true,
   session,
   onOpen,
   onReady,
@@ -73,7 +83,15 @@ export function AgentTerminalWorkspace({
   const lastResizeRef = useRef({ cols: 0, rows: 0 })
   const previousStatusRef = useRef<TerminalSessionState['status'] | ''>('')
   const outputQueueRef = useRef<string[]>([])
+  const outputQueueHeadRef = useRef(0)
+  const outputQueuedCharsRef = useRef(0)
+  const outputDroppedRef = useRef(false)
   const outputFlushFrameRef = useRef<number | null>(null)
+  const outputFlushTimerRef = useRef<number | null>(null)
+  const outputWriteInFlightRef = useRef(false)
+  const webglActiveRef = useRef(false)
+  const visibleRef = useRef(isVisible)
+  const activeTerminalId = session?.terminalId || ''
 
   useEffect(() => {
     inputHandlerRef.current = onInput
@@ -92,23 +110,27 @@ export function AgentTerminalWorkspace({
   }, [onError])
 
   useEffect(() => {
+    visibleRef.current = isVisible
+  }, [isVisible])
+
+  useEffect(() => {
     connectedTerminalIdRef.current = ''
     announcedStateRef.current = ''
     previousStatusRef.current = ''
   }, [session?.terminalId])
 
   useEffect(() => {
-    if (!session || !containerRef.current) return
+    if (!activeTerminalId || !containerRef.current) return
 
     const terminal = new XTerm({
       allowTransparency: false,
       convertEol: true,
-      cursorBlink: true,
+      cursorBlink: false,
       fontFamily: '"SF Mono", "SFMono-Regular", ui-monospace, Monaco, Consolas, monospace',
       fontSize: 13,
       lineHeight: 1.35,
       macOptionIsMeta: true,
-      scrollback: 5000,
+      scrollback: 2000,
       theme: terminalTheme,
     })
     const fitAddon = new FitAddon()
@@ -117,6 +139,7 @@ export function AgentTerminalWorkspace({
     terminal.open(containerRef.current)
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
+    webglActiveRef.current = false
 
     terminal.writeln('\x1b[90m正在连接终端...\x1b[0m')
 
@@ -134,6 +157,32 @@ export function AgentTerminalWorkspace({
 
     resizeNowRef.current = resizeNow
 
+    let webglAddon: DisposableLike | null = null
+    let webglLossDisposable: DisposableLike | null = null
+    let webglDisposed = false
+    const enableWebglRenderer = async () => {
+      try {
+        const module = await import('@xterm/addon-webgl')
+        if (webglDisposed || terminalRef.current !== terminal) return
+
+        const addon = new module.WebglAddon()
+        webglLossDisposable = addon.onContextLoss(() => {
+          webglActiveRef.current = false
+          webglLossDisposable?.dispose()
+          webglLossDisposable = null
+        })
+        terminal.loadAddon(addon)
+        webglAddon = addon
+        webglActiveRef.current = true
+        window.requestAnimationFrame(() => {
+          resizeNowRef.current()
+        })
+      } catch {
+        webglActiveRef.current = false
+      }
+    }
+    void enableWebglRenderer()
+
     const dataDisposable = terminal.onData((data) => {
       if (!data) return
       inputHandlerRef.current?.(data)
@@ -150,22 +199,125 @@ export function AgentTerminalWorkspace({
     })
 
     if (onAttachOutput) {
+      const compactOutputQueue = () => {
+        const head = outputQueueHeadRef.current
+        if (head <= 0) return
+
+        const queue = outputQueueRef.current
+        if (head < 1024 && head*2 < queue.length) return
+
+        outputQueueRef.current = queue.slice(head)
+        outputQueueHeadRef.current = 0
+      }
+
+      const clearScheduledFlush = () => {
+        if (outputFlushFrameRef.current !== null) {
+          window.cancelAnimationFrame(outputFlushFrameRef.current)
+          outputFlushFrameRef.current = null
+        }
+        if (outputFlushTimerRef.current !== null) {
+          window.clearTimeout(outputFlushTimerRef.current)
+          outputFlushTimerRef.current = null
+        }
+      }
+
+      const scheduleFlush = (mode: 'frame' | 'immediate') => {
+        if (outputWriteInFlightRef.current) return
+        if (outputFlushFrameRef.current !== null || outputFlushTimerRef.current !== null) return
+
+        const scheduleMode = visibleRef.current ? mode : 'frame'
+
+        if (scheduleMode === 'immediate') {
+          outputFlushTimerRef.current = window.setTimeout(() => {
+            outputFlushTimerRef.current = null
+            flushOutputQueue()
+          }, 4)
+          return
+        }
+
+        outputFlushFrameRef.current = window.requestAnimationFrame(() => {
+          outputFlushFrameRef.current = null
+          flushOutputQueue()
+        })
+      }
+
       const flushOutputQueue = () => {
-        outputFlushFrameRef.current = null
-        if (!terminalRef.current || outputQueueRef.current.length === 0) return
-        const merged = outputQueueRef.current.join('')
-        outputQueueRef.current = []
+        clearScheduledFlush()
+        const terminal = terminalRef.current
+        if (!terminal || outputWriteInFlightRef.current) return
+
+        const queue = outputQueueRef.current
+        let head = outputQueueHeadRef.current
+        if (head >= queue.length) return
+
+        const flushMode = resolveTerminalFlushMode(outputQueuedCharsRef.current)
+        let remaining = flushMode === 'burst' ? terminalOutputBurstCharsPerFlush : terminalOutputCharsPerFlush
+        if (!visibleRef.current) {
+          remaining = Math.min(remaining, 8 * 1024)
+        }
+        const parts: string[] = []
+        while (remaining > 0 && head < queue.length) {
+          const chunk = queue[head]
+          if (!chunk) {
+            head += 1
+            continue
+          }
+
+          if (chunk.length <= remaining) {
+            parts.push(chunk)
+            remaining -= chunk.length
+            outputQueuedCharsRef.current -= chunk.length
+            head += 1
+            continue
+          }
+
+          parts.push(chunk.slice(0, remaining))
+          queue[head] = chunk.slice(remaining)
+          outputQueuedCharsRef.current -= remaining
+          remaining = 0
+        }
+
+        outputQueueHeadRef.current = head
+        compactOutputQueue()
+
+        const merged = parts.join('')
         if (merged) {
-          terminalRef.current.write(merged)
+          outputWriteInFlightRef.current = true
+          terminal.write(merged, () => {
+            outputWriteInFlightRef.current = false
+            if (outputQueueHeadRef.current < outputQueueRef.current.length) {
+              const nextMode =
+                resolveTerminalFlushMode(outputQueuedCharsRef.current) === 'burst' ? 'immediate' : 'frame'
+              scheduleFlush(nextMode)
+            } else if (outputDroppedRef.current) {
+              outputDroppedRef.current = false
+            }
+          })
+        } else if (outputDroppedRef.current) {
+          outputDroppedRef.current = false
         }
       }
 
       detachOutputRef.current = onAttachOutput((chunk) => {
         if (!chunk) return
-        outputQueueRef.current.push(chunk)
-        if (outputFlushFrameRef.current === null) {
-          outputFlushFrameRef.current = window.requestAnimationFrame(flushOutputQueue)
-        }
+
+        const nextQueueState = applyTerminalOutputBackpressure(
+          {
+            queue: outputQueueRef.current,
+            head: outputQueueHeadRef.current,
+            queuedChars: outputQueuedCharsRef.current,
+            droppedNoticeQueued: outputDroppedRef.current,
+          },
+          chunk,
+        )
+        outputQueueRef.current = nextQueueState.queue
+        outputQueueHeadRef.current = nextQueueState.head
+        outputQueuedCharsRef.current = nextQueueState.queuedChars
+        outputDroppedRef.current = nextQueueState.droppedNoticeQueued
+
+        const nextMode =
+          resolveTerminalFlushMode(outputQueuedCharsRef.current) === 'burst' ? 'immediate' : 'frame'
+        scheduleFlush(nextMode)
       })
     }
 
@@ -174,7 +326,21 @@ export function AgentTerminalWorkspace({
         window.cancelAnimationFrame(outputFlushFrameRef.current)
         outputFlushFrameRef.current = null
       }
+      if (outputFlushTimerRef.current !== null) {
+        window.clearTimeout(outputFlushTimerRef.current)
+        outputFlushTimerRef.current = null
+      }
       outputQueueRef.current = []
+      outputQueueHeadRef.current = 0
+      outputQueuedCharsRef.current = 0
+      outputDroppedRef.current = false
+      outputWriteInFlightRef.current = false
+      webglDisposed = true
+      webglLossDisposable?.dispose()
+      webglLossDisposable = null
+      webglAddon?.dispose()
+      webglAddon = null
+      webglActiveRef.current = false
       detachOutputRef.current?.()
       detachOutputRef.current = null
       resizeObserver.disconnect()
@@ -186,7 +352,7 @@ export function AgentTerminalWorkspace({
       resizeNowRef.current = () => {}
       lastResizeRef.current = { cols: 0, rows: 0 }
     }
-  }, [onAttachOutput, session?.terminalId])
+  }, [activeTerminalId, onAttachOutput])
 
   useEffect(() => {
     if (!session || !terminalRef.current) return

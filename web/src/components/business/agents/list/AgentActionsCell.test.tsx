@@ -5,7 +5,7 @@ import { createAgentItemFixture, createTemplateFixture } from '../../../../test/
 describe('AgentActionsCell', () => {
   const noop = () => {}
 
-  it('shows Hermes action set without unrelated web ui entry', () => {
+  it('shows Hermes action set without unrelated web ui entry', async () => {
     const item = createAgentItemFixture({
       template: createTemplateFixture(),
       access: [
@@ -36,19 +36,18 @@ describe('AgentActionsCell', () => {
       />,
     )
 
-    fireEvent.click(screen.getByTitle('更多操作'))
-    const deleteButton = screen.getByRole('button', { name: '删除' })
-    const menu = deleteButton.parentElement as HTMLElement
+    fireEvent.pointerDown(screen.getByTitle('更多操作'))
+    const menu = await screen.findByRole('menu')
 
-    expect(within(menu).getByRole('button', { name: '对话' })).toBeInTheDocument()
-    expect(within(menu).getByRole('button', { name: '终端' })).toBeInTheDocument()
-    expect(within(menu).getByRole('button', { name: '文件' })).toBeInTheDocument()
-    expect(within(menu).getByRole('button', { name: '配置' })).toBeInTheDocument()
-    expect(within(menu).getByRole('button', { name: '删除' })).toBeInTheDocument()
-    expect(within(menu).queryByRole('button', { name: 'Web UI' })).not.toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: '对话' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: '终端' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: '文件' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: '配置' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: '删除' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Web UI' })).not.toBeInTheDocument()
   })
 
-  it('shows OpenClaw action set with web ui but without chat', () => {
+  it('shows OpenClaw action set with web ui but without chat', async () => {
     const item = createAgentItemFixture({
       templateId: 'openclaw',
       template: createTemplateFixture({ id: 'openclaw', name: 'OpenClaw', workingDir: '/app', user: 'openclaw' }),
@@ -79,14 +78,13 @@ describe('AgentActionsCell', () => {
       />,
     )
 
-    fireEvent.click(screen.getByTitle('更多操作'))
-    const deleteButton = screen.getByRole('button', { name: '删除' })
-    const menu = deleteButton.parentElement as HTMLElement
+    fireEvent.pointerDown(screen.getByTitle('更多操作'))
+    const menu = await screen.findByRole('menu')
 
-    expect(within(menu).getByRole('button', { name: 'Web UI' })).toBeInTheDocument()
-    expect(within(menu).getByRole('button', { name: '终端' })).toBeInTheDocument()
-    expect(within(menu).getByRole('button', { name: '文件' })).toBeInTheDocument()
-    expect(within(menu).getByRole('button', { name: '配置' })).toBeInTheDocument()
-    expect(within(menu).queryByRole('button', { name: '对话' })).not.toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Web UI' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: '终端' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: '文件' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: '配置' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: '对话' })).not.toBeInTheDocument()
   })
 })
