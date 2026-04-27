@@ -9,6 +9,7 @@ import (
 	"github.com/nightwhite/Agent-Hub/internal/kube"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -82,7 +83,51 @@ func TestUpdateAgentResourcesRollsBackDevboxAndServiceWhenIngressUpdateFails(t *
 	}
 }
 
+func TestMarkAgentBootstrapPendingRetriesOnConflict(t *testing.T) {
+	t.Parallel()
+
+	const namespace = "ns-test"
+	const agentName = "demo-agent"
+
+	repo, dynamicClient, _ := newUpdateAgentTestFixturesWithDynamic(t, namespace, agentName)
+	updateAttempts := 0
+	dynamicClient.PrependReactor("update", "devboxes", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		updateAttempts++
+		if updateAttempts == 1 {
+			return true, nil, apierrors.NewConflict(kube.ResourceGVR().GroupResource(), agentName, fmt.Errorf("modified"))
+		}
+		return false, nil, nil
+	})
+
+	staleDevbox, err := repo.Get(context.Background(), agentName)
+	if err != nil {
+		t.Fatalf("repo.Get() error = %v", err)
+	}
+
+	if err := markAgentBootstrapPending(context.Background(), repo, staleDevbox, "hermes-agent"); err != nil {
+		t.Fatalf("markAgentBootstrapPending() error = %v, want nil", err)
+	}
+	if updateAttempts < 2 {
+		t.Fatalf("update attempts = %d, want retry after conflict", updateAttempts)
+	}
+
+	updated, err := repo.Get(context.Background(), agentName)
+	if err != nil {
+		t.Fatalf("repo.Get() after mark error = %v", err)
+	}
+	if got := updated.GetAnnotations()["agent.sealos.io/bootstrap-phase"]; got != kube.BootstrapPhasePending {
+		t.Fatalf("bootstrap phase = %q, want pending", got)
+	}
+}
+
 func newUpdateAgentTestFixtures(t *testing.T, namespace, agentName string) (*kube.Repository, *k8sfake.Clientset) {
+	t.Helper()
+
+	repo, _, clientset := newUpdateAgentTestFixturesWithDynamic(t, namespace, agentName)
+	return repo, clientset
+}
+
+func newUpdateAgentTestFixturesWithDynamic(t *testing.T, namespace, agentName string) (*kube.Repository, *dynamicfake.FakeDynamicClient, *k8sfake.Clientset) {
 	t.Helper()
 
 	devbox := &unstructured.Unstructured{
@@ -159,7 +204,7 @@ func newUpdateAgentTestFixtures(t *testing.T, namespace, agentName string) (*kub
 		},
 	)
 
-	return repo, clientset
+	return repo, dynamicClient, clientset
 }
 
 func TestNormalizeUpdatedModelBaseURLOnlyNormalizesCustomProvider(t *testing.T) {

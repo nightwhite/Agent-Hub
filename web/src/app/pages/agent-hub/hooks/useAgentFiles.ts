@@ -128,6 +128,7 @@ const createFilesSession = (resource: AgentListItem): FilesSessionState => ({
   reading: false,
   saving: false,
   downloading: false,
+  deleting: false,
   uploading: false,
   dirty: false,
 })
@@ -1356,6 +1357,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               ...session,
               status: 'working',
               error: '',
+              deleting: true,
               activity: `正在删除 ${path}...`,
             }
           : session,
@@ -1397,6 +1399,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
                   ? ''
                   : session.previewObjectType,
               dirty: session.openedItem?.path === path ? false : session.dirty,
+              deleting: false,
               activity: `已删除 ${path}`,
             }
           : session,
@@ -1410,6 +1413,7 @@ export function useAgentFiles({ clusterContext }: UseAgentFilesOptions) {
               ...session,
               status: 'error',
               error: error instanceof Error ? error.message : '删除失败',
+              deleting: false,
               activity: error instanceof Error ? error.message : '删除失败',
             }
           : session,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -73,7 +74,16 @@ func runAgentBootstrapLifecycle(
 		return err
 	}
 
-	if err := executeTemplateScript(ctx, clientset, factory, spec.Name, templateDef.Bootstrap.Script, templateDef.BootstrapScriptPath(), templateDef.Bootstrap.TimeoutSeconds); err != nil {
+	if err := executeTemplateScript(
+		ctx,
+		clientset,
+		factory,
+		spec.Name,
+		templateDef.Bootstrap.Script,
+		templateDef.BootstrapScriptPath(),
+		templateDef.Bootstrap.TimeoutSeconds,
+		bootstrapScriptEnv(spec, templateDef),
+	); err != nil {
 		if fallbackErr := runBootstrapFallback(ctx, factory, spec, err); fallbackErr != nil {
 			message := truncateBootstrapMessage(fallbackErr.Error())
 			_ = persistBootstrapStatus(context.Background(), repo, spec.Name, kube.BootstrapPhaseFailed, message)
@@ -144,6 +154,7 @@ func waitForTemplateHealthcheck(
 			templateDef.Healthcheck.Script,
 			healthcheckScript,
 			0,
+			nil,
 		)
 		cancel()
 		if lastErr == nil {
@@ -166,6 +177,7 @@ func executeTemplateScript(
 	scriptName string,
 	scriptPath string,
 	timeoutSeconds int,
+	env map[string]string,
 ) error {
 	raw, err := readTemplateScript(scriptName, scriptPath)
 	if err != nil {
@@ -180,6 +192,7 @@ func executeTemplateScript(
 		scriptName,
 		raw,
 		timeoutSeconds,
+		env,
 	)
 }
 
@@ -199,6 +212,7 @@ func executeTemplateScriptContent(
 	scriptName string,
 	raw []byte,
 	timeoutSeconds int,
+	env map[string]string,
 ) error {
 	execCtx := ctx
 	var cancel context.CancelFunc
@@ -208,6 +222,7 @@ func executeTemplateScriptContent(
 	}
 
 	command := []string{"bash", "-se"}
+	payload := withTemplateScriptEnv(raw, env)
 
 	stdout, stderr, err := execInAgentPodWithRetry(
 		execCtx,
@@ -215,11 +230,13 @@ func executeTemplateScriptContent(
 		factory,
 		agentName,
 		command,
-		raw,
+		payload,
 		false,
 		nil,
 	)
 	if err != nil {
+		stdout = redactTemplateScriptOutput(stdout, env)
+		stderr = redactTemplateScriptOutput(stderr, env)
 		return fmt.Errorf(
 			"%s failed: %w (stdout=%q stderr=%q)",
 			scriptName,
@@ -230,6 +247,99 @@ func executeTemplateScriptContent(
 	}
 
 	return nil
+}
+
+func redactTemplateScriptOutput(value string, env map[string]string) string {
+	redacted := value
+	for key, rawValue := range env {
+		if !isSensitiveEnvKey(key) {
+			continue
+		}
+		secret := strings.TrimSpace(rawValue)
+		if secret == "" {
+			continue
+		}
+		redacted = strings.ReplaceAll(redacted, secret, "[REDACTED]")
+	}
+	return redacted
+}
+
+func isSensitiveEnvKey(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	return strings.Contains(normalized, "key") ||
+		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "password")
+}
+
+func bootstrapScriptEnv(spec agent.Agent, templateDef agenttemplate.Definition) map[string]string {
+	env := map[string]string{
+		"AGENT_TEMPLATE_ID":         spec.TemplateID,
+		"AGENT_WORKDIR":             firstNonEmpty(spec.WorkingDir, templateDef.WorkingDir),
+		"AGENT_MODEL_PROVIDER":      spec.ModelProvider,
+		"AGENT_MODEL_BASEURL":       spec.ModelBaseURL,
+		"AGENT_MODEL_APIKEY":        spec.ModelAPIKey,
+		"AGENT_MODEL":               spec.Model,
+		"HERMES_INFERENCE_PROVIDER": spec.ModelProvider,
+		"API_SERVER_KEY":            spec.APIServerKey,
+	}
+	if templateDef.Port > 0 {
+		env["API_SERVER_PORT"] = fmt.Sprintf("%d", templateDef.Port)
+	}
+	if isManagedBootstrapProvider(spec.ModelProvider) {
+		env["AIPROXY_API_KEY"] = spec.ModelAPIKey
+		env["OPENAI_BASE_URL"] = ""
+		env["OPENAI_API_KEY"] = ""
+	} else {
+		env["AIPROXY_API_KEY"] = ""
+		env["OPENAI_BASE_URL"] = spec.ModelBaseURL
+		env["OPENAI_API_KEY"] = spec.ModelAPIKey
+	}
+	return env
+}
+
+func isManagedBootstrapProvider(value string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "custom:aiproxy-")
+}
+
+func withTemplateScriptEnv(raw []byte, env map[string]string) []byte {
+	if len(env) == 0 {
+		return raw
+	}
+
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return raw
+	}
+
+	var builder strings.Builder
+	builder.WriteString("set -a\n")
+	for _, key := range keys {
+		builder.WriteString(key)
+		builder.WriteByte('=')
+		builder.WriteString(shellQuote(env[key]))
+		builder.WriteByte('\n')
+	}
+	builder.WriteString("set +a\n")
+	builder.Write(raw)
+	if len(raw) == 0 || raw[len(raw)-1] != '\n' {
+		builder.WriteByte('\n')
+	}
+	return []byte(builder.String())
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func persistBootstrapStatus(ctx context.Context, repo *kube.Repository, agentName, phase, message string) error {

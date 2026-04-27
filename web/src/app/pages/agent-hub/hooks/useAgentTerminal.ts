@@ -9,7 +9,7 @@ import { decodeWSBinaryMessage, encodeWSBinaryMessage } from '../lib/wsBinaryPro
 
 type TerminalOutputListener = (chunk: string) => void
 
-const fallbackTerminalCwd = '/opt/hermes'
+const fallbackTerminalCwd = '/workspace'
 const maxBufferedOutputChunks = 200
 const reconnectDelaySchedule = [600, 1200, 2400, 5000]
 const maxReconnectAttempts = 6

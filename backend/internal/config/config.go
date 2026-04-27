@@ -13,6 +13,7 @@ type Config struct {
 	SSHDomain           string
 	APIServerImage      string
 	AgentTemplateDir    string
+	AgentTemplateGitURL string
 	WebDistDir          string
 	AIProxyBaseURL      string
 	AIProxyModelBaseURL string
@@ -35,6 +36,7 @@ func Load() Config {
 		SSHDomain:           strings.TrimSpace(os.Getenv("SSH_DOMAIN")),
 		APIServerImage:      getenv("AGENT_IMAGE", "nousresearch/hermes-agent:latest"),
 		AgentTemplateDir:    getenv("AGENT_MANIFEST_TEMPLATE_DIR", ""),
+		AgentTemplateGitURL: strings.TrimSpace(os.Getenv("AGENT_TEMPLATE_GIT_URL")),
 		WebDistDir:          getenv("WEB_DIST_DIR", ""),
 		AIProxyBaseURL:      aiProxyManagerBaseURL,
 		AIProxyModelBaseURL: strings.TrimSpace(os.Getenv("AIPROXY_MODEL_BASE_URL")),

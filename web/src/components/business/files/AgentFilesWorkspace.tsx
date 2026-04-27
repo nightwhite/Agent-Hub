@@ -1,6 +1,7 @@
 import {
   ChevronRight,
   ChevronUp,
+  Download,
   Eye,
   File,
   FileCode2,
@@ -12,6 +13,7 @@ import {
   PencilLine,
   RefreshCw,
   Save,
+  Trash2,
   Upload,
 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
@@ -87,21 +89,18 @@ export function AgentFilesWorkspace({
   onSelectEntry,
   onOpenEntry,
   onEditEntry,
-  onPrefetchDirectory: _onPrefetchDirectory,
+  onPrefetchDirectory,
   onOpenParent,
   onJumpToPath,
   onRefresh,
   onChangeContent,
   onSave,
-  onDownload: _onDownload,
-  onDelete: _onDelete,
+  onDownload,
+  onDelete,
   onCreateDirectory,
   onCreateFile,
   onUpload,
 }: AgentFilesWorkspaceProps) {
-  void _onPrefetchDirectory
-  void _onDownload
-  void _onDelete
   const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const [directoryDraft, setDirectoryDraft] = useState<{ basePath: string; value: string } | null>(null)
   const [searchKeyword, setSearchKeyword] = useState('')
@@ -146,6 +145,12 @@ export function AgentFilesWorkspace({
     }
   }
 
+  const handleDeleteEntry = (item: AgentFileItem) => {
+    const confirmed = window.confirm(`确定删除 ${item.path} 吗？此操作不可撤销。`)
+    if (!confirmed) return
+    onDelete(item.path)
+  }
+
   const renderItemIcon = (item: AgentFileItem) => {
     if (item.type === 'dir') return <Folder size={16} className="text-sky-600" />
     if (item.type === 'file') {
@@ -180,6 +185,7 @@ export function AgentFilesWorkspace({
   const selectedItem = session?.selectedItem || null
   const openedItem = session?.openedItem || null
   const focusedItem = openedItem || selectedItem
+  const actionItem = selectedItem || openedItem
   const activeTextContent = session?.dirty ? session.draftContent : session?.previewContent || ''
   const selectedFileName = focusedItem?.name || ''
   const canGoUp = Boolean(session && session.currentPath !== session.rootPath)
@@ -192,6 +198,8 @@ export function AgentFilesWorkspace({
   )
   const canEdit = Boolean(selectedItem && selectedItem.type === 'file' && isTextPreviewableFile(selectedItem.name))
   const canPreview = Boolean(selectedItem)
+  const canDownload = Boolean(actionItem && actionItem.type === 'file')
+  const canDelete = Boolean(actionItem)
   const openedCanEdit = Boolean(openedItem && openedItem.type === 'file' && isTextPreviewableFile(openedItem.name))
   const markdownActive = Boolean(openedItem && isMarkdownLikeFile(openedItem.name))
   const imageActive = Boolean(openedItem && isImagePreviewableFile(openedItem.name))
@@ -388,6 +396,11 @@ export function AgentFilesWorkspace({
                                         onOpenEntry(item)
                                       }
                                     }}
+                                    onMouseEnter={() => {
+                                      if (item.type === 'dir') {
+                                        onPrefetchDirectory?.(item.path)
+                                      }
+                                    }}
                                     type="button"
                                   >
                                     <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-zinc-200 bg-white">
@@ -512,6 +525,26 @@ export function AgentFilesWorkspace({
                     未保存
                   </span>
                 ) : null}
+                <Button
+                  disabled={!canDownload || session.downloading}
+                  onClick={() => actionItem && onDownload(actionItem.path)}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  <Download size={16} />
+                  下载
+                </Button>
+                <Button
+                  disabled={!canDelete || session.saving || session.uploading || session.deleting}
+                  onClick={() => actionItem && handleDeleteEntry(actionItem)}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  <Trash2 size={16} />
+                  删除
+                </Button>
                 <Button disabled={!canSave} onClick={onSave} size="sm" type="button" variant="secondary">
                   <Save size={16} />
                   保存
@@ -613,6 +646,7 @@ export function AgentFilesWorkspace({
               <div className="flex items-center gap-2 text-[10px]/4 text-zinc-400">
                 {session.uploading ? <span>上传中</span> : null}
                 {session.downloading ? <span>下载中</span> : null}
+                {session.deleting ? <span>删除中</span> : null}
                 {session.saving ? <span>保存中</span> : null}
               </div>
             </div>

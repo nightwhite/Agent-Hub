@@ -93,6 +93,10 @@ export interface AgentTemplateCatalogItem {
   actions: TemplateActionItem[];
   settings: TemplateSettingsSchema;
   modelOptions: TemplateModelOption[];
+  config?: {
+    schemaPath: string;
+    scriptPath: string;
+  };
 }
 
 export interface AgentTemplateDefinition extends AgentTemplateCatalogItem {
@@ -404,6 +408,7 @@ export interface FilesSessionState {
   reading: boolean;
   saving: boolean;
   downloading: boolean;
+  deleting: boolean;
   uploading: boolean;
   dirty: boolean;
 }

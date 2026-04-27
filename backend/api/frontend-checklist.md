@@ -14,7 +14,7 @@ go run cmd/app/main.go
 或者继续使用显式环境变量：
 
 ```bash
-REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-agent:latest go run cmd/app/main.go
+REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_TEMPLATE_GIT_URL=https://github.com/nightwhite/Agent-Hub-Template.git go run cmd/app/main.go
 ```
 
 服务地址：

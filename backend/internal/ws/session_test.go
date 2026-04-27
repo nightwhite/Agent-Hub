@@ -137,19 +137,19 @@ func TestResolveTerminalPathDefaultsToWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveTerminalPath() error = %v", err)
 	}
-	if got != "/opt/data/workspace" {
-		t.Fatalf("resolveTerminalPath() = %q, want /opt/data/workspace", got)
+	if got != "/workspace" {
+		t.Fatalf("resolveTerminalPath() = %q, want /workspace", got)
 	}
 }
 
-func TestResolveTerminalPathAllowsHermesRuntimeRoots(t *testing.T) {
+func TestResolveTerminalPathAllowsAbsoluteContainerPaths(t *testing.T) {
 	t.Parallel()
 
 	cases := []string{
-		"/opt/data/workspace/project",
-		"/opt/data/logs",
-		"/opt/hermes",
-		"/opt/hermes/.venv/bin",
+		"/workspace/project",
+		"/opt/agent",
+		"/opt/hermes/venv/bin",
+		"/tmp/file",
 	}
 
 	for _, input := range cases {
@@ -166,10 +166,28 @@ func TestResolveTerminalPathAllowsHermesRuntimeRoots(t *testing.T) {
 func TestResolveTerminalPathRejectsEscapes(t *testing.T) {
 	t.Parallel()
 
-	for _, input := range []string{"../etc/passwd", "/tmp/file", "/root"} {
+	for _, input := range []string{"../etc/passwd", ".."} {
 		if _, err := resolveTerminalPath(input); err == nil {
 			t.Fatalf("resolveTerminalPath(%q) should fail", input)
 		}
+	}
+}
+
+func TestBuildTerminalBootstrapCommandUsesWorkspaceWithoutHermesDataRoot(t *testing.T) {
+	t.Parallel()
+
+	command := buildTerminalBootstrapCommand("/workspace")
+	if !strings.Contains(command, "cd -- '/workspace'") {
+		t.Fatalf("buildTerminalBootstrapCommand() = %q, want cd into /workspace", command)
+	}
+	if strings.Contains(command, "mkdir -p") {
+		t.Fatalf("buildTerminalBootstrapCommand() = %q, should not create terminal cwd", command)
+	}
+	if !strings.Contains(command, "terminal working directory does not exist: /workspace") {
+		t.Fatalf("buildTerminalBootstrapCommand() = %q, want clear missing cwd error", command)
+	}
+	if strings.Contains(command, "/opt/data") {
+		t.Fatalf("buildTerminalBootstrapCommand() = %q, should not depend on /opt/data", command)
 	}
 }
 

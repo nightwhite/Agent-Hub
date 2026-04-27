@@ -200,6 +200,7 @@ export function AgentDetailPage() {
       reading: false,
       saving: false,
       downloading: false,
+      deleting: false,
       uploading: false,
       dirty: false,
     };

@@ -19,7 +19,7 @@ go run cmd/app/main.go
 或者继续使用显式环境变量：
 
 ```bash
-REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-agent:latest go run cmd/app/main.go
+REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_TEMPLATE_GIT_URL=https://github.com/nightwhite/Agent-Hub-Template.git go run cmd/app/main.go
 ```
 
 启动成功后默认监听：
@@ -34,6 +34,10 @@ http://127.0.0.1:8999
 curl http://127.0.0.1:8999/healthz
 curl http://127.0.0.1:8999/readyz
 ```
+
+模板源说明：
+- 未配置 `AGENT_TEMPLATE_GIT_URL` 时，后端读取仓库内置 `template/`。
+- 配置 `AGENT_TEMPLATE_GIT_URL` 后，`GET /api/v1/templates` 与创建链路会优先读取外部模板仓库的 registry/index/deploy/config 契约，并使用其中的镜像部署。
 
 说明：
 - `healthz` 仅表示进程存活
