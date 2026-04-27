@@ -1367,7 +1367,7 @@ func buildTerminalBootstrapCommand(cwd string) string {
 		"if [ -d " + shellQuote(terminalInstallDir+"/.venv/bin") + " ]; then export PATH=" + shellQuote(terminalInstallDir+"/.venv/bin") + ":$PATH; fi",
 		"if [ -f " + shellQuote(terminalInstallDir+"/venv/bin/activate") + " ]; then . " + shellQuote(terminalInstallDir+"/venv/bin/activate") + "; fi",
 		"if [ -f " + shellQuote(terminalInstallDir+"/.venv/bin/activate") + " ]; then . " + shellQuote(terminalInstallDir+"/.venv/bin/activate") + "; fi",
-		"mkdir -p " + shellQuote(cwd) + " >/dev/null 2>&1 || true",
+		"if [ ! -d " + shellQuote(cwd) + " ]; then echo " + shellQuote("terminal working directory does not exist: "+cwd) + " >&2; exit 1; fi",
 		"cd -- " + shellQuote(cwd),
 		"if command -v bash >/dev/null 2>&1; then exec bash; fi",
 		"exec sh",

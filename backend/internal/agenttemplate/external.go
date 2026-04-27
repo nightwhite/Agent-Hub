@@ -81,12 +81,13 @@ type cachedExternalRoot struct {
 }
 
 var (
-	externalCacheMu    sync.Mutex
-	externalRootByURL  = map[string]cachedExternalRoot{}
-	externalSharedOnce sync.Once
-	externalSharedDir  string
-	externalSharedErr  error
-	externalHTTPClient = &http.Client{Timeout: 30 * time.Second}
+	externalCacheMu      sync.Mutex
+	externalFetchMuByURL = map[string]*sync.Mutex{}
+	externalRootByURL    = map[string]cachedExternalRoot{}
+	externalSharedOnce   sync.Once
+	externalSharedDir    string
+	externalSharedErr    error
+	externalHTTPClient   = &http.Client{Timeout: 30 * time.Second}
 )
 
 func listExternal(options SourceOptions) ([]Definition, error) {
@@ -164,10 +165,16 @@ func ensureExternalRoot(options SourceOptions) (string, error) {
 	}
 	targetDir := filepath.Join(cacheDir, cacheDirectoryName(source))
 
-	externalCacheMu.Lock()
-	defer externalCacheMu.Unlock()
-	if cached, ok := externalRootByURL[cacheKey]; ok && time.Now().Before(cached.expiresAt) && isLocalExternalRoot(cached.root) {
-		return cached.root, nil
+	if root, ok := getCachedExternalRoot(cacheKey); ok {
+		return root, nil
+	}
+
+	fetchMu := externalFetchLock(cacheKey)
+	fetchMu.Lock()
+	defer fetchMu.Unlock()
+
+	if root, ok := getCachedExternalRoot(cacheKey); ok {
+		return root, nil
 	}
 
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -175,7 +182,9 @@ func ensureExternalRoot(options SourceOptions) (string, error) {
 	}
 
 	if archiveURL, ok := githubZipballURL(source); ok {
-		_ = os.RemoveAll(targetDir)
+		if err := os.RemoveAll(targetDir); err != nil {
+			return "", fmt.Errorf("remove stale external template archive cache: %w", err)
+		}
 		if err := downloadAndExtractZipball(archiveURL, targetDir); err != nil {
 			return "", err
 		}
@@ -187,7 +196,9 @@ func ensureExternalRoot(options SourceOptions) (string, error) {
 			return "", err
 		}
 	} else {
-		_ = os.RemoveAll(targetDir)
+		if err := os.RemoveAll(targetDir); err != nil {
+			return "", fmt.Errorf("remove stale external template git cache: %w", err)
+		}
 		if err := runGit("", "clone", "--depth=1", source, targetDir); err != nil {
 			return "", err
 		}
@@ -197,11 +208,34 @@ func ensureExternalRoot(options SourceOptions) (string, error) {
 		return "", fmt.Errorf("external template registry not found in %s", targetDir)
 	}
 
+	externalCacheMu.Lock()
 	externalRootByURL[cacheKey] = cachedExternalRoot{
 		root:      targetDir,
 		expiresAt: time.Now().Add(externalCacheTTL),
 	}
+	externalCacheMu.Unlock()
 	return targetDir, nil
+}
+
+func getCachedExternalRoot(cacheKey string) (string, bool) {
+	externalCacheMu.Lock()
+	defer externalCacheMu.Unlock()
+	cached, ok := externalRootByURL[cacheKey]
+	if !ok || !time.Now().Before(cached.expiresAt) || !isLocalExternalRoot(cached.root) {
+		return "", false
+	}
+	return cached.root, true
+}
+
+func externalFetchLock(cacheKey string) *sync.Mutex {
+	externalCacheMu.Lock()
+	defer externalCacheMu.Unlock()
+	fetchMu := externalFetchMuByURL[cacheKey]
+	if fetchMu == nil {
+		fetchMu = &sync.Mutex{}
+		externalFetchMuByURL[cacheKey] = fetchMu
+	}
+	return fetchMu
 }
 
 func readExternalRegistry(rootDir string) (externalRegistry, error) {
@@ -720,6 +754,7 @@ func downloadAndExtractZipball(archiveURL, targetDir string) error {
 		return fmt.Errorf("build template archive request: %w", err)
 	}
 	req.Header.Set("User-Agent", "agent-hub-template-fetcher")
+	applyGitHubAuthentication(req)
 
 	resp, err := externalHTTPClient.Do(req)
 	if err != nil {
@@ -796,6 +831,28 @@ func downloadAndExtractZipball(archiveURL, targetDir string) error {
 	}
 
 	return nil
+}
+
+func githubTokenFromEnv() string {
+	for _, key := range []string{"GITHUB_TOKEN", "GITHUB_API_TOKEN"} {
+		if token := strings.TrimSpace(os.Getenv(key)); token != "" {
+			return token
+		}
+	}
+	return ""
+}
+
+func applyGitHubAuthentication(req *http.Request) {
+	if req == nil || req.URL == nil {
+		return
+	}
+	host := strings.ToLower(req.URL.Hostname())
+	if host != "api.github.com" && host != "github.com" {
+		return
+	}
+	if token := githubTokenFromEnv(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 }
 
 func stripArchiveRoot(name string) string {

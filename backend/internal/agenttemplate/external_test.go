@@ -1,6 +1,7 @@
 package agenttemplate
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,6 +95,29 @@ func TestGithubZipballURLSupportsRepositoryURLs(t *testing.T) {
 	}
 	if got != "https://api.github.com/repos/nightwhite/Agent-Hub-Template/zipball" {
 		t.Fatalf("githubZipballURL(.git) = %q, want GitHub API zipball URL", got)
+	}
+}
+
+func TestApplyGitHubAuthenticationUsesOptionalToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "github-token")
+	t.Setenv("GITHUB_API_TOKEN", "fallback-token")
+
+	req, err := http.NewRequest(http.MethodGet, "https://api.github.com/repos/nightwhite/Agent-Hub-Template/zipball", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	applyGitHubAuthentication(req)
+	if got := req.Header.Get("Authorization"); got != "Bearer github-token" {
+		t.Fatalf("Authorization = %q, want bearer token", got)
+	}
+
+	nonGitHubReq, err := http.NewRequest(http.MethodGet, "https://example.com/archive.zip", nil)
+	if err != nil {
+		t.Fatalf("NewRequest(nonGitHub) error = %v", err)
+	}
+	applyGitHubAuthentication(nonGitHubReq)
+	if got := nonGitHubReq.Header.Get("Authorization"); got != "" {
+		t.Fatalf("non-GitHub Authorization = %q, want empty", got)
 	}
 }
 

@@ -536,7 +536,7 @@ export function AgentFilesWorkspace({
                   下载
                 </Button>
                 <Button
-                  disabled={!canDelete || session.saving || session.uploading}
+                  disabled={!canDelete || session.saving || session.uploading || session.deleting}
                   onClick={() => actionItem && handleDeleteEntry(actionItem)}
                   size="sm"
                   type="button"
@@ -646,6 +646,7 @@ export function AgentFilesWorkspace({
               <div className="flex items-center gap-2 text-[10px]/4 text-zinc-400">
                 {session.uploading ? <span>上传中</span> : null}
                 {session.downloading ? <span>下载中</span> : null}
+                {session.deleting ? <span>删除中</span> : null}
                 {session.saving ? <span>保存中</span> : null}
               </div>
             </div>

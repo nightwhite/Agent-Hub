@@ -153,6 +153,7 @@ REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_TEMPLATE_GIT_URL=https://g
 - `AGENT_IMAGE`：默认 `nousresearch/hermes-agent:latest`
 - `AGENT_MANIFEST_TEMPLATE_DIR`：模板目录根路径（容器建议值 `/app/template`，本地默认自动探测仓库内 `template/`）
 - `AGENT_TEMPLATE_GIT_URL`：外部 Agent 模板 Git 地址；配置后 `GET /api/v1/templates` 与创建链路优先读取该仓库的 `registry/agents.yaml`、`agents/<id>/index.json`、`deploy.yaml`、`config.json`、`config.sh`
+- `GITHUB_TOKEN` / `GITHUB_API_TOKEN`：可选；读取 GitHub 模板仓库 zipball 时携带，用于避免匿名 API 限流
 - `AIPROXY_BASE_URL`：AIProxy token 管理地址，默认 `https://aiproxy-web.hzh.sealos.run`
 - `K8S_PROXY_ALLOWED_HOSTS`：K8s API 反向代理允许的目标主机白名单（逗号分隔，支持精确主机或 `.suffix` 后缀规则），默认 `.sealos.io,.sealos.run`
 - `REGION`：模型预设区域，支持 `us` / `cn`，必须显式配置

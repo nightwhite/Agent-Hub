@@ -37,10 +37,17 @@ func TestExternalBootstrapFallsBackToHermesDirectModelConfig(t *testing.T) {
 		"AGENT_MODEL_BASEURL=https://aiproxy.usw-1.sealos.io/v1",
 		"AGENT_MODEL_APIKEY=test-aiproxy-key",
 		"AGENT_MODEL=gpt-5.4",
+		"API_SERVER_KEY=test-gateway-key",
+		"API_SERVER_PORT=8642",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("bootstrap.sh failed: %v\n%s", err, output)
+	}
+	for _, secret := range []string{"test-aiproxy-key", "test-gateway-key"} {
+		if strings.Contains(string(output), secret) {
+			t.Fatalf("bootstrap output leaked secret %q:\n%s", secret, output)
+		}
 	}
 
 	configRaw, err := os.ReadFile(filepath.Join(hermesHome, "config.yaml"))
@@ -93,5 +100,26 @@ func TestTemplateScriptEnvOverridesRunningContainerEnv(t *testing.T) {
 	}
 	if string(got) != "gpt-5.4-mini" {
 		t.Fatalf("AGENT_MODEL = %q, want injected gpt-5.4-mini", got)
+	}
+}
+
+func TestRedactTemplateScriptOutputMasksSensitiveEnvValues(t *testing.T) {
+	t.Parallel()
+
+	output := redactTemplateScriptOutput(
+		"stdout model-key and gateway-token but harmless-value remains",
+		map[string]string{
+			"AGENT_MODEL_APIKEY": "model-key",
+			"API_SERVER_KEY":     "gateway-token",
+			"HARMLESS_ENV":       "harmless-value",
+		},
+	)
+	for _, secret := range []string{"model-key", "gateway-token"} {
+		if strings.Contains(output, secret) {
+			t.Fatalf("redacted output leaked %q: %s", secret, output)
+		}
+	}
+	if !strings.Contains(output, "harmless-value") {
+		t.Fatalf("redacted output = %q, want non-sensitive values preserved", output)
 	}
 }

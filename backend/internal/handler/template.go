@@ -77,10 +77,12 @@ func toTemplateCatalogItem(definition agenttemplate.Definition, region string) d
 		Settings:     toTemplateSettings(definition, region),
 		ModelOptions: toTemplateModelOptions(definition.RegionModelPresets[region]),
 	}
-	if strings.TrimSpace(definition.Config.SchemaPath) != "" || strings.TrimSpace(definition.Config.ScriptPath) != "" {
+	schemaPath := strings.TrimSpace(definition.Config.SchemaPath)
+	scriptPath := strings.TrimSpace(definition.Config.ScriptPath)
+	if schemaPath != "" && scriptPath != "" {
 		item.Config = &dto.TemplateConfigContract{
-			SchemaPath: definition.Config.SchemaPath,
-			ScriptPath: definition.Config.ScriptPath,
+			SchemaPath: schemaPath,
+			ScriptPath: scriptPath,
 		}
 	}
 	return item

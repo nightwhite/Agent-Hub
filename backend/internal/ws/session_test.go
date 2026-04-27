@@ -180,6 +180,12 @@ func TestBuildTerminalBootstrapCommandUsesWorkspaceWithoutHermesDataRoot(t *test
 	if !strings.Contains(command, "cd -- '/workspace'") {
 		t.Fatalf("buildTerminalBootstrapCommand() = %q, want cd into /workspace", command)
 	}
+	if strings.Contains(command, "mkdir -p") {
+		t.Fatalf("buildTerminalBootstrapCommand() = %q, should not create terminal cwd", command)
+	}
+	if !strings.Contains(command, "terminal working directory does not exist: /workspace") {
+		t.Fatalf("buildTerminalBootstrapCommand() = %q, want clear missing cwd error", command)
+	}
 	if strings.Contains(command, "/opt/data") {
 		t.Fatalf("buildTerminalBootstrapCommand() = %q, should not depend on /opt/data", command)
 	}

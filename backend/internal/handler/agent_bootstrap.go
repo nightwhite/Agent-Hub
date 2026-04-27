@@ -235,6 +235,8 @@ func executeTemplateScriptContent(
 		nil,
 	)
 	if err != nil {
+		stdout = redactTemplateScriptOutput(stdout, env)
+		stderr = redactTemplateScriptOutput(stderr, env)
 		return fmt.Errorf(
 			"%s failed: %w (stdout=%q stderr=%q)",
 			scriptName,
@@ -245,6 +247,29 @@ func executeTemplateScriptContent(
 	}
 
 	return nil
+}
+
+func redactTemplateScriptOutput(value string, env map[string]string) string {
+	redacted := value
+	for key, rawValue := range env {
+		if !isSensitiveEnvKey(key) {
+			continue
+		}
+		secret := strings.TrimSpace(rawValue)
+		if secret == "" {
+			continue
+		}
+		redacted = strings.ReplaceAll(redacted, secret, "[REDACTED]")
+	}
+	return redacted
+}
+
+func isSensitiveEnvKey(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	return strings.Contains(normalized, "key") ||
+		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "password")
 }
 
 func bootstrapScriptEnv(spec agent.Agent, templateDef agenttemplate.Definition) map[string]string {

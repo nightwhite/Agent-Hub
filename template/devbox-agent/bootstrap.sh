@@ -9,6 +9,42 @@ log() {
   printf '[agent-hub bootstrap] %s\n' "$*" >&2
 }
 
+is_sensitive_key() {
+  local key
+  key="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  [[ "$key" == *key* || "$key" == *token* || "$key" == *secret* || "$key" == *password* ]]
+}
+
+format_config_args_for_log() {
+  local args=("$@")
+  local result="" value previous
+  local count="${#args[@]}"
+  local i
+
+  for ((i = 0; i < count; i++)); do
+    value="${args[$i]}"
+    previous=""
+    if ((i > 0)); then
+      previous="${args[$((i - 1))]}"
+    fi
+
+    if ((i > 0)) && is_sensitive_key "$previous"; then
+      value="***"
+    fi
+    if [[ "${args[0]:-}" == "provider" && "${args[1]:-}" == "set-api-key" && "$i" -ge 3 ]]; then
+      value="***"
+    fi
+    if [[ "${args[0]:-}" == "gateway" && "${args[1]:-}" == "set-token" && "$i" -ge 2 ]]; then
+      value="***"
+    fi
+
+    printf -v value '%q' "$value"
+    result+="${result:+ }$value"
+  done
+
+  printf '%s' "$result"
+}
+
 run_config_optional() {
   if [[ ! -x "$CONFIG_SCRIPT" ]]; then
     return 1
@@ -20,7 +56,7 @@ run_config_optional() {
     return 0
   fi
 
-  log "config command failed: $*"
+  log "config command failed: $(format_config_args_for_log "$@")"
   return 1
 }
 
