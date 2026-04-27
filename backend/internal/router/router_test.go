@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -156,6 +158,50 @@ func TestListTemplatesReturnsRegionalCatalogWithoutAuthorization(t *testing.T) {
 
 	if !foundHermes {
 		t.Fatal("GET /api/v1/templates did not return hermes-agent")
+	}
+}
+
+func TestListTemplatesUsesExternalTemplateGitSource(t *testing.T) {
+	t.Parallel()
+
+	templateRoot := writeRouterExternalTemplateFixture(t)
+	recorder := performRequestWithConfig(t, config.Config{
+		Port:                "8080",
+		IngressSuffix:       "agent.usw-1.sealos.app",
+		APIServerImage:      "nousresearch/hermes-agent:latest",
+		AIProxyModelBaseURL: "https://aiproxy.example.com/v1",
+		AgentTemplateGitURL: templateRoot,
+		Region:              "us",
+	}, http.MethodGet, "/api/v1/templates", "", "", nil)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/templates status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	body := decodeEnvelope(t, recorder)
+	items, ok := body.Data["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("GET /api/v1/templates data.items = %#v, want one external item", body.Data["items"])
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("GET /api/v1/templates item = %#v, want map", items[0])
+	}
+	if item["id"] != "hermes-agent" {
+		t.Fatalf("external template id = %#v, want hermes-agent", item["id"])
+	}
+	if item["image"] != "agent-hub/hermes-agent:dev" {
+		t.Fatalf("external template image = %#v, want agent-hub/hermes-agent:dev", item["image"])
+	}
+	if item["workingDir"] != "/workspace" {
+		t.Fatalf("external template workingDir = %#v, want /workspace", item["workingDir"])
+	}
+	configContract, ok := item["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("external template config = %#v, want config contract", item["config"])
+	}
+	if configContract["schemaPath"] != "/opt/agent/config.json" || configContract["scriptPath"] != "/opt/agent/config.sh" {
+		t.Fatalf("external template config = %#v, want standard config paths", configContract)
 	}
 }
 
@@ -629,6 +675,60 @@ func performRequestWithConfig(t *testing.T, cfg config.Config, method, target, b
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, req)
 	return recorder
+}
+
+func writeRouterExternalTemplateFixture(t *testing.T) string {
+	t.Helper()
+
+	root := t.TempDir()
+	writeRouterFile(t, root, "registry/agents.yaml", `agents:
+  - name: hermes-agent
+    path: agents/hermes-agent
+    enabled: true
+`)
+	writeRouterFile(t, root, "agents/hermes-agent/index.json", `{
+  "id": "hermes-agent",
+  "icon": "https://example.com/hermes.png",
+  "name": "Hermes Agent",
+  "desc": "External Hermes",
+  "status": "enabled",
+  "image": "agent-hub/hermes-agent:index",
+  "runtime": { "kind": "service" }
+}`)
+	writeRouterFile(t, root, "agents/hermes-agent/deploy.yaml", `apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: hermes-agent
+          image: agent-hub/hermes-agent:dev
+          env:
+            - name: API_SERVER_PORT
+              value: "8642"
+          args: ["start"]
+          workingDir: /workspace
+`)
+	writeRouterFile(t, root, "agents/hermes-agent/config.json", `{
+  "schemaVersion": "devbox-agent-config.v1",
+  "script": "/opt/agent/config.sh",
+  "zh": { "resources": [{"resource": "model", "actions": []}] },
+  "en": { "resources": [{"resource": "model", "actions": []}] }
+}`)
+	writeRouterFile(t, root, "agents/hermes-agent/config.sh", "#!/usr/bin/env bash\n")
+	return root
+}
+
+func writeRouterFile(t *testing.T, root, name, content string) {
+	t.Helper()
+
+	path := filepath.Join(root, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
 }
 
 func readBody(t *testing.T, r *http.Request) string {

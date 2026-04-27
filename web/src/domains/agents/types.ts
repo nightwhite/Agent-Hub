@@ -93,6 +93,10 @@ export interface AgentTemplateCatalogItem {
   actions: TemplateActionItem[];
   settings: TemplateSettingsSchema;
   modelOptions: TemplateModelOption[];
+  config?: {
+    schemaPath: string;
+    scriptPath: string;
+  };
 }
 
 export interface AgentTemplateDefinition extends AgentTemplateCatalogItem {

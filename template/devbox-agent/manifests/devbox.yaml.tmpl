@@ -1,0 +1,46 @@
+apiVersion: devbox.sealos.io/v1alpha2
+kind: Devbox
+metadata:
+  name: {{ quote .Agent.Name }}
+  namespace: {{ quote .Agent.Namespace }}
+  labels:
+{{- range $key, $value := .DevboxLabels }}
+    {{ $key }}: {{ quote $value }}
+{{- end }}
+  annotations:
+{{- range $key, $value := .DevboxAnnotations }}
+    {{ $key }}: {{ quote $value }}
+{{- end }}
+spec:
+  image: {{ quote .Image }}
+  state: "Running"
+  runtimeClassName: "devbox-runtime"
+  storageLimit: {{ quote .Agent.Storage }}
+  network:
+    type: "SSHGate"
+    extraPorts:
+      - containerPort: {{ .Port }}
+  resource:
+    cpu: {{ quote .Agent.CPU }}
+    memory: {{ quote .Agent.Memory }}
+  config:
+    labels:
+{{- range $key, $value := .SelectorLabels }}
+      {{ $key }}: {{ quote $value }}
+{{- end }}
+    user: {{ quote .User }}
+    workingDir: {{ quote .WorkingDir }}
+    appPorts:
+      - name: {{ quote .Agent.Name }}
+        port: {{ .Port }}
+        protocol: "TCP"
+        targetPort: {{ .Port }}
+    env:
+{{- range .Env }}
+      - name: {{ quote .Name }}
+        value: {{ quote .Value }}
+{{- end }}
+    args:
+{{- range .DefaultArgs }}
+      - {{ quote . }}
+{{- end }}

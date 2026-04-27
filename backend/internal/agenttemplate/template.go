@@ -32,15 +32,33 @@ type Definition struct {
 	Actions              []ActionDefinition       `yaml:"actions"`
 	Settings             SettingsSchema           `yaml:"settings"`
 	RegionModelPresets   map[string][]ModelPreset `yaml:"regionModelPresets"`
+	Env                  []EnvVar                 `yaml:"env"`
 	Bootstrap            ScriptSpec               `yaml:"bootstrap"`
 	Healthcheck          ScriptSpec               `yaml:"healthcheck"`
+	Config               ConfigContract           `yaml:"config"`
 	rootDir              string
+}
+
+type SourceOptions struct {
+	LocalDir string
+	GitURL   string
+	CacheDir string
 }
 
 type ScriptSpec struct {
 	Script         string `yaml:"script"`
 	Shell          string `yaml:"shell"`
 	TimeoutSeconds int    `yaml:"timeoutSeconds"`
+}
+
+type EnvVar struct {
+	Name  string `yaml:"name" json:"name"`
+	Value string `yaml:"value" json:"value"`
+}
+
+type ConfigContract struct {
+	SchemaPath string `yaml:"schemaPath" json:"schemaPath"`
+	ScriptPath string `yaml:"scriptPath" json:"scriptPath"`
 }
 
 type Presentation struct {
@@ -134,6 +152,13 @@ func Resolve(templateID, override string) (Definition, error) {
 	return definition, nil
 }
 
+func ResolveFromSource(templateID string, options SourceOptions) (Definition, error) {
+	if strings.TrimSpace(options.GitURL) != "" {
+		return resolveExternal(templateID, options)
+	}
+	return Resolve(templateID, options.LocalDir)
+}
+
 func List(override string) ([]Definition, error) {
 	baseDir, err := resolveTemplateBaseDir(override)
 	if err != nil {
@@ -172,6 +197,13 @@ func List(override string) ([]Definition, error) {
 		return definitions[i].ID < definitions[j].ID
 	})
 	return definitions, nil
+}
+
+func ListFromSource(options SourceOptions) ([]Definition, error) {
+	if strings.TrimSpace(options.GitURL) != "" {
+		return listExternal(options)
+	}
+	return List(options.LocalDir)
 }
 
 func (d Definition) ManifestPath() string {

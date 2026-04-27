@@ -25,6 +25,10 @@ func resolveTemplateDefinition(cfg config.Config, templateID string) (agenttempl
 		return agenttemplate.Definition{}, fmt.Errorf("template id is required")
 	}
 
+	if strings.TrimSpace(cfg.AgentTemplateGitURL) != "" {
+		return agenttemplate.ResolveFromSource(templateID, templateSourceOptions(cfg))
+	}
+
 	cacheKey := strings.TrimSpace(cfg.AgentTemplateDir) + "::" + templateID
 	if cached, ok := templateDefinitionCache.Load(cacheKey); ok {
 		if definition, typed := cached.(agenttemplate.Definition); typed {
@@ -32,12 +36,19 @@ func resolveTemplateDefinition(cfg config.Config, templateID string) (agenttempl
 		}
 	}
 
-	definition, err := agenttemplate.Resolve(templateID, cfg.AgentTemplateDir)
+	definition, err := agenttemplate.ResolveFromSource(templateID, templateSourceOptions(cfg))
 	if err != nil {
 		return agenttemplate.Definition{}, err
 	}
 	templateDefinitionCache.Store(cacheKey, definition)
 	return definition, nil
+}
+
+func templateSourceOptions(cfg config.Config) agenttemplate.SourceOptions {
+	return agenttemplate.SourceOptions{
+		LocalDir: cfg.AgentTemplateDir,
+		GitURL:   cfg.AgentTemplateGitURL,
+	}
 }
 
 func buildAgentContract(view kube.AgentView, templateDef agenttemplate.Definition, cfg config.Config) dto.AgentContract {

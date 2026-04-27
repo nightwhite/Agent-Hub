@@ -28,12 +28,22 @@ type BuildOptions struct {
 	IngressDomain string
 	Image         string
 	TemplateDir   string
+	Port          int32
+	DefaultArgs   []string
+	WorkingDir    string
+	User          string
+	Env           []EnvVar
 }
 
 type manifestTemplateData struct {
 	Agent              agent.Agent
 	Image              string
 	IngressDomain      string
+	Port               int32
+	DefaultArgs        []string
+	WorkingDir         string
+	User               string
+	Env                []EnvVar
 	DevboxLabels       map[string]string
 	ServiceLabels      map[string]string
 	IngressLabels      map[string]string
@@ -41,6 +51,11 @@ type manifestTemplateData struct {
 	DevboxAnnotations  map[string]string
 	ServiceAnnotations map[string]string
 	IngressAnnotations map[string]string
+}
+
+type EnvVar struct {
+	Name  string
+	Value string
 }
 
 const manifestTemplateRoot = "template/hermes-agent/manifests"
@@ -98,6 +113,11 @@ func buildManifestTemplateData(agentSpec agent.Agent, options BuildOptions) mani
 		Agent:              agentSpec,
 		Image:              options.Image,
 		IngressDomain:      options.IngressDomain,
+		Port:               resolvedPort(options.Port),
+		DefaultArgs:        resolvedDefaultArgs(options.DefaultArgs),
+		WorkingDir:         firstNonEmpty(options.WorkingDir, agentSpec.WorkingDir, "/opt/hermes"),
+		User:               firstNonEmpty(options.User, agentSpec.User, "hermes"),
+		Env:                buildManifestEnv(agentSpec, options),
 		DevboxLabels:       cloneStringMap(labels),
 		ServiceLabels:      cloneStringMap(labels),
 		IngressLabels:      ingressLabels,
@@ -106,6 +126,80 @@ func buildManifestTemplateData(agentSpec agent.Agent, options BuildOptions) mani
 		ServiceAnnotations: serviceAnnotations,
 		IngressAnnotations: ingressAnnotations,
 	}
+}
+
+func resolvedPort(port int32) int32 {
+	if port > 0 {
+		return port
+	}
+	return 8642
+}
+
+func resolvedDefaultArgs(args []string) []string {
+	if len(args) > 0 {
+		return append([]string(nil), args...)
+	}
+	return []string{"gateway", "run"}
+}
+
+func buildManifestEnv(agentSpec agent.Agent, options BuildOptions) []EnvVar {
+	values := map[string]string{}
+	order := []string{}
+	appendValue := func(name, value string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		if _, exists := values[name]; !exists {
+			order = append(order, name)
+		}
+		values[name] = value
+	}
+
+	for _, env := range options.Env {
+		appendValue(env.Name, env.Value)
+	}
+
+	port := strconv.FormatInt(int64(resolvedPort(options.Port)), 10)
+	appendValue("API_SERVER_KEY", agentSpec.APIServerKey)
+	appendValue("API_SERVER_ENABLED", "true")
+	appendValue("API_SERVER_HOST", "0.0.0.0")
+	appendValue("API_SERVER_PORT", port)
+	appendValue("HERMES_INFERENCE_PROVIDER", agentSpec.ModelProvider)
+	if isManagedAIProxyProvider(agentSpec.ModelProvider) {
+		appendValue("OPENAI_BASE_URL", "")
+		appendValue("OPENAI_API_KEY", "")
+		appendValue("AIPROXY_API_KEY", agentSpec.ModelAPIKey)
+	} else {
+		appendValue("OPENAI_BASE_URL", agentSpec.ModelBaseURL)
+		appendValue("OPENAI_API_KEY", agentSpec.ModelAPIKey)
+		appendValue("AIPROXY_API_KEY", "")
+	}
+	appendValue("AGENT_MODEL_PROVIDER", agentSpec.ModelProvider)
+	appendValue("AGENT_MODEL_BASEURL", agentSpec.ModelBaseURL)
+	appendValue("AGENT_MODEL_APIKEY", agentSpec.ModelAPIKey)
+	appendValue("AGENT_MODEL", agentSpec.Model)
+	appendValue("AGENT_TEMPLATE_ID", agentSpec.TemplateID)
+	appendValue("AGENT_WORKDIR", firstNonEmpty(options.WorkingDir, agentSpec.WorkingDir, "/opt/hermes"))
+
+	result := make([]EnvVar, 0, len(order))
+	for _, name := range order {
+		result = append(result, EnvVar{Name: name, Value: values[name]})
+	}
+	return result
+}
+
+func isManagedAIProxyProvider(value string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "custom:aiproxy-")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func resolveManifestTemplateDir(override string) (string, error) {

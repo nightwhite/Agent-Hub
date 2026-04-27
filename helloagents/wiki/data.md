@@ -28,10 +28,13 @@
 | `actions` | 模板允许的动作入口 |
 | `settings` | 运行时设置与模板私有设置 schema |
 | `modelOptions` | 当前 `region` 下可用的模型选项，每项自带 `provider + apiMode` |
+| `config` | 外部模板配置契约路径，当前为 `/opt/agent/config.json` 与 `/opt/agent/config.sh` |
 
 说明：
 - `cn/us` 模型差异完全由目录快照决定
 - 前端静态模板表只保留 logo / 颜色等展示资源映射，不再承载能力真相
+- 当 `AGENT_TEMPLATE_GIT_URL` 存在时，目录快照来自外部模板仓库；后端会把 `index.json` / `deploy.yaml` 映射回同一个 `AgentTemplateCatalogItem`，并把 GitHub 源中的 `agent-hub/<name>:<tag>` 占位镜像解析为 `ghcr.io/<owner>/<name>:<tag>`
+- 外部模板的 `config.json` / `config.sh` 遵循 Devbox Agent Adapter Standard，后续运行态配置应通过容器内 `/opt/agent/config.json` 与 `/opt/agent/config.sh` 完成，不再把不同 Agent 强压成同一套私有字段
 
 ## AgentListItem
 

@@ -320,6 +320,11 @@ func CreateAgent(c *gin.Context) {
 		IngressDomain: ingressDomain,
 		Image:         templateDef.Image,
 		TemplateDir:   templateDef.ManifestPath(),
+		Port:          templateDef.Port,
+		DefaultArgs:   templateDef.DefaultArgs,
+		WorkingDir:    templateDef.WorkingDir,
+		User:          templateDef.User,
+		Env:           toKubeEnvVars(templateDef.Env),
 	})
 	if buildErr != nil {
 		writeAppError(c, http.StatusInternalServerError, appErr.New(appErr.CodeKubernetesOperation, "failed to build kubernetes resources"))
@@ -991,14 +996,29 @@ func markAgentBootstrapPending(ctx context.Context, repo *kube.Repository, devbo
 	if devbox == nil {
 		return fmt.Errorf("devbox is nil")
 	}
-	if err := updateBootstrapMetadata(devbox, templateID); err != nil {
-		return err
+	agentName := strings.TrimSpace(devbox.GetName())
+	if agentName == "" {
+		return fmt.Errorf("devbox name is required")
 	}
-	updated, err := repo.Update(ctx, devbox)
+
+	var updated *unstructured.Unstructured
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current, err := repo.Get(ctx, agentName)
+		if err != nil {
+			return err
+		}
+		if err := updateBootstrapMetadata(current, templateID); err != nil {
+			return err
+		}
+		updated, err = repo.Update(ctx, current)
+		return err
+	})
 	if err != nil {
 		return err
 	}
-	devbox.Object = updated.Object
+	if updated != nil {
+		devbox.Object = updated.Object
+	}
 	return nil
 }
 

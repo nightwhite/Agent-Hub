@@ -161,6 +161,20 @@ func TestLoadParsesK8sProxyAllowedHostsFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadReadsAgentTemplateGitURLFromEnv(t *testing.T) {
+	t.Setenv("LOAD_DOTENV", "")
+	t.Setenv("GO_ENV", "production")
+	t.Setenv("APP_ENV", "")
+	t.Setenv("GIN_MODE", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	t.Setenv("AGENT_TEMPLATE_GIT_URL", " https://github.com/nightwhite/Agent-Hub-Template.git ")
+
+	cfg := Load()
+	if cfg.AgentTemplateGitURL != "https://github.com/nightwhite/Agent-Hub-Template.git" {
+		t.Fatalf("Load().AgentTemplateGitURL = %q, want trimmed git url", cfg.AgentTemplateGitURL)
+	}
+}
+
 func TestLoadDoesNotReadDotEnvInProductionByDefault(t *testing.T) {
 	t.Setenv("LOAD_DOTENV", "")
 	t.Setenv("GO_ENV", "production")

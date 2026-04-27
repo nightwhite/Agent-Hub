@@ -15,6 +15,8 @@ flowchart LR
     H --> I["Kubernetes / DevBox / Service / Ingress"]
     H --> J["AIProxy Token API"]
     H --> K["SSH Access API"]
+    H --> M["Agent Template Git Source"]
+    M --> N["registry/index/deploy/config"]
 ```
 
 ## 前端状态流
@@ -37,6 +39,9 @@ sequenceDiagram
 ## 关键设计点
 - 路由共享同一个 `AgentHubControllerProvider`，列表页、模板页、创建页、详情页只消费一份 contract 快照。
 - 前端模板权威已收回到后端：`/api/v1/templates` 提供模板目录、访问能力、动作、设置 schema 和按 `REGION` 裁剪后的模型预设。
+- 后端模板源支持 `AGENT_TEMPLATE_GIT_URL`：配置后优先从外部模板仓库读取 `registry/agents.yaml`、`index.json`、`deploy.yaml`、`config.json`、`config.sh`，再适配成现有 `Template Catalog`。
+- 外部模板中 `agent-hub/<name>:<tag>` 镜像占位会按 GitHub owner 映射到 GHCR，`config.json/config.sh` 会挂到标准 `/opt/agent` 契约，工作目录默认固定为 `/workspace`。
+- 外部模板仓库第一阶段只作为目录、镜像、启动参数、工作目录、端口与配置契约来源；实际创建仍渲染 Agent Hub 管理的 Devbox/Service/Ingress，不直接 apply 外部任意 Deployment YAML。
 - Agent 页面权威已切到 Contract V1：列表和详情统一消费 `core / workspaces / access / runtime / settings / actions`，不再允许通过镜像、域名、模型名做推断。
 - `useAgentHubController` 只在实例处于 `creating` 或 `running but not ready` 时静默轮询，避免常态页面持续刷新。
 - 详情页侧边工作区改为 contract 驱动：`overview / chat / terminal / files / settings / web-ui` 只在模板显式声明时出现。
@@ -47,6 +52,7 @@ sequenceDiagram
 - Agent Console WS 链路升级为 Stream V2：统一二进制帧，后端单写协程消费有界队列，`terminal.output/log.chunk` 在高压下优先丢弃最旧片段并下发 `dropped + droppedCount` 标记，保证控制消息与输入交互优先。
 - 终端渲染链路采用 `normal/burst` 双模式调度，前端优先启用 WebGL renderer（失败自动回退），并保留 Tab 切换后终端实例持续驻留，避免重建导致的抖动。
 - 文件预览链路采用缓存优先策略（TTL=120s），返回 `fromCache/stale` 元信息并在 stale 命中时后台刷新，显著降低重复打开目录与文件的等待时间。
+- 文件工作台 UI 必须把后端已有的 `download/delete/prefetch` 能力显式接入，避免出现“提示可下载但没有入口”或“预取 hook 存在但未触发”的断层。
 - 文件连接就绪策略从轮询改为事件驱动 ready gate，`file.request` 统一等待连接事件并附带超时回收，降低无效等待和悬挂请求风险。
 - 后端文件操作链路按读/写场景拆分队列与超时窗口：`list/read/download` 与 `write/delete/mkdir/upload` 分级调度，降低目录浏览与文件预览被写操作阻塞的概率。
 - 控制台目录树引入“工作目录优先锚点 + 手动折叠优先”状态机，保证首次可用速度与用户操作可预测性。
@@ -60,3 +66,4 @@ sequenceDiagram
 | ADR-20260418-03 | Agent Hub 工作区与设置字段改为模板 schema 显式绑定 | 2026-04-18 | ✅已采纳 | backend/internal/agenttemplate, backend/internal/handler, web/src/app/pages/agent-hub | 通过 `workspaces + settings.binding` 让工作区和设置写入都回到模板目录单一路径 |
 | ADR-20260423-01 | Agent Console Stream V2 与高压背压策略 | 2026-04-23 | ✅已采纳 | backend/internal/ws, web/src/app/pages/agent-hub, web/src/components/business/terminal | WS 改为 Binary V2，后端单写队列 + 最旧流式数据淘汰并附带 dropped 标记，前端终端调度与文件缓存链路同步升级 |
 | ADR-20260424-01 | 控制台深层性能与稳定性治理（文件 QoS + Ready Gate + 目录锚点） | 2026-04-24 | ✅已采纳 | backend/internal/ws, web/src/app/pages/agent-hub, web/src/components/business/terminal | 文件链路改为事件驱动就绪门控并补齐请求回收，后端按读/写分级队列与超时策略，目录树默认锚定工作目录且保留根目录切换，隐藏终端标签进入降压调度 |
+| ADR-20260427-01 | 外部模板仓库作为 Agent 目录与镜像源 | 2026-04-27 | ✅已采纳 | backend/internal/config, backend/internal/agenttemplate, backend/internal/kube | 通过 `AGENT_TEMPLATE_GIT_URL` 缓存并读取 Agent-Hub-Template，保持 Devbox 部署模型不变，只从外部契约覆盖发布态元数据 |

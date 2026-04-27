@@ -26,7 +26,9 @@ Agent Hub 前端通过 `backend/` 暴露的统一 API 与 Sealos 集群交互。
 #### `GET /api/v1/templates`
 - 说明：返回模板目录
 - 关键响应字段：`items[]`、`region`
-- 模板项内容：`access`、`actions`、`settings`、`modelOptions`、`presentation`
+- 模板项内容：`access`、`actions`、`settings`、`modelOptions`、`presentation`、可选 `config`
+- 数据源：默认读取内置 `template/`；配置 `AGENT_TEMPLATE_GIT_URL` 后优先读取外部模板仓库的 `registry/agents.yaml` 与 `agents/<id>/index.json/deploy.yaml/config.json/config.sh`
+- 部署约束：外部 `deploy.yaml` 当前只用于提取镜像、启动参数、工作目录、端口与环境变量，创建链路仍由后端渲染 Devbox/Service/Ingress
 
 ### Agent 管理
 

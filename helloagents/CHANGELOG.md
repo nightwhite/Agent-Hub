@@ -4,7 +4,12 @@
 
 ## [Unreleased]
 
+### 新增
+- 后端新增 `AGENT_TEMPLATE_GIT_URL` 外部模板 Git 源：模板列表与创建链路可优先读取 `Agent-Hub-Template` 的 registry/index/deploy/config 契约，并使用外部镜像渲染 Devbox 资源。
+- 文件工作台补齐目录 hover 预取、下载与删除入口，让后端已有文件管理能力真正暴露到控制台 UI。
+
 ### 变更
+- 外部模板适配层会将 GitHub 模板仓库中的 `agent-hub/<name>:<tag>` 占位镜像映射到 `ghcr.io/<owner>/<name>:<tag>`，并统一以 `/workspace` 作为外部 Agent 的默认工作目录。
 - Agent Console 深层性能治理：目录树改为“工作目录优先锚点 + 可切换根目录 + 手动折叠优先”，文件链路从轮询 ready 改为事件门控并补齐请求超时回收；后端文件操作按读/写分级队列与超时策略，终端隐藏标签采用降压刷写以降低持续输出卡顿。
 - 新增 `web/scripts/agentConsolePerfSmoke.ts` 与 `perf:agent-console-smoke` 命令，补齐控制台关键路径（目录链路、文件 ready gate、终端背压）的可复用 smoke 基线。
 - Agent Console Stream V2 全链路升级：WebSocket 改为 Binary V2 帧协议；后端新增单写有界队列与流式高压淘汰（附 `dropped/droppedCount` 标记）；前端终端优先启用 WebGL renderer + burst 调度，文件预览支持 `fromCache/stale` 反馈与后台刷新。

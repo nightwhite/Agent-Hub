@@ -10,6 +10,7 @@ import (
 	"github.com/nightwhite/Agent-Hub/internal/agenttemplate"
 	"github.com/nightwhite/Agent-Hub/internal/config"
 	"github.com/nightwhite/Agent-Hub/internal/dto"
+	"github.com/nightwhite/Agent-Hub/internal/kube"
 	appErr "github.com/nightwhite/Agent-Hub/pkg/errors"
 )
 
@@ -21,7 +22,7 @@ func ListTemplates(c *gin.Context) {
 		return
 	}
 
-	definitions, err := agenttemplate.List(cfg.AgentTemplateDir)
+	definitions, err := agenttemplate.ListFromSource(templateSourceOptions(cfg))
 	if err != nil {
 		writeAppError(c, http.StatusInternalServerError, appErr.New(appErr.CodeKubernetesOperation, err.Error()))
 		return
@@ -53,7 +54,7 @@ func requiredRegion(cfg config.Config) (string, *appErr.AppError) {
 }
 
 func toTemplateCatalogItem(definition agenttemplate.Definition, region string) dto.TemplateCatalogItem {
-	return dto.TemplateCatalogItem{
+	item := dto.TemplateCatalogItem{
 		ID:                   definition.ID,
 		Name:                 definition.Name,
 		ShortName:            definition.ShortName,
@@ -76,6 +77,13 @@ func toTemplateCatalogItem(definition agenttemplate.Definition, region string) d
 		Settings:     toTemplateSettings(definition, region),
 		ModelOptions: toTemplateModelOptions(definition.RegionModelPresets[region]),
 	}
+	if strings.TrimSpace(definition.Config.SchemaPath) != "" || strings.TrimSpace(definition.Config.ScriptPath) != "" {
+		item.Config = &dto.TemplateConfigContract{
+			SchemaPath: definition.Config.SchemaPath,
+			ScriptPath: definition.Config.ScriptPath,
+		}
+	}
+	return item
 }
 
 func toTemplateWorkspaceItems(items []agenttemplate.WorkspaceDefinition) []dto.TemplateWorkspaceItem {
@@ -131,6 +139,17 @@ func toTemplateModelOptions(items []agenttemplate.ModelPreset) []dto.TemplateMod
 			Helper:   item.Helper,
 			Provider: item.Provider,
 			APIMode:  item.APIMode,
+		})
+	}
+	return result
+}
+
+func toKubeEnvVars(items []agenttemplate.EnvVar) []kube.EnvVar {
+	result := make([]kube.EnvVar, 0, len(items))
+	for _, item := range items {
+		result = append(result, kube.EnvVar{
+			Name:  item.Name,
+			Value: item.Value,
 		})
 	}
 	return result

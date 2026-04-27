@@ -31,10 +31,9 @@ import (
 
 const (
 	fileRootDir             = "/"
-	terminalDefaultDir      = "/opt/data/workspace"
-	terminalHomeDir         = "/opt/data/home"
+	terminalDefaultDir      = "/workspace"
+	terminalHomeDir         = "/home/agent"
 	terminalInstallDir      = "/opt/hermes"
-	terminalRuntimeRoot     = "/opt/data"
 	wsReadLimit             = 2 << 20
 	wsWriteWait             = 10 * time.Second
 	wsPongWait              = 60 * time.Second
@@ -1343,10 +1342,7 @@ func resolveTerminalPath(raw string) (string, error) {
 
 	cleaned := path.Clean(raw)
 	if path.IsAbs(cleaned) {
-		if isWithinRoot(cleaned, terminalRuntimeRoot) || isWithinRoot(cleaned, terminalInstallDir) {
-			return cleaned, nil
-		}
-		return "", fmt.Errorf("path escapes the terminal workspace")
+		return cleaned, nil
 	}
 
 	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
@@ -1366,11 +1362,12 @@ func isWithinRoot(target, root string) bool {
 
 func buildTerminalBootstrapCommand(cwd string) string {
 	return strings.Join([]string{
-		"export HERMES_HOME=${HERMES_HOME:-" + shellQuote(terminalRuntimeRoot) + "}",
 		"if [ -d " + shellQuote(terminalHomeDir) + " ]; then export HOME=" + shellQuote(terminalHomeDir) + "; fi",
+		"if [ -d " + shellQuote(terminalInstallDir+"/venv/bin") + " ]; then export PATH=" + shellQuote(terminalInstallDir+"/venv/bin") + ":$PATH; fi",
 		"if [ -d " + shellQuote(terminalInstallDir+"/.venv/bin") + " ]; then export PATH=" + shellQuote(terminalInstallDir+"/.venv/bin") + ":$PATH; fi",
+		"if [ -f " + shellQuote(terminalInstallDir+"/venv/bin/activate") + " ]; then . " + shellQuote(terminalInstallDir+"/venv/bin/activate") + "; fi",
 		"if [ -f " + shellQuote(terminalInstallDir+"/.venv/bin/activate") + " ]; then . " + shellQuote(terminalInstallDir+"/.venv/bin/activate") + "; fi",
-		"mkdir -p " + shellQuote(terminalDefaultDir) + " >/dev/null 2>&1 || true",
+		"mkdir -p " + shellQuote(cwd) + " >/dev/null 2>&1 || true",
 		"cd -- " + shellQuote(cwd),
 		"if command -v bash >/dev/null 2>&1; then exec bash; fi",
 		"exec sh",

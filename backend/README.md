@@ -138,7 +138,7 @@ go run cmd/app/main.go
 如果你不想落文件，也可以继续直接内联环境变量启动：
 
 ```bash
-REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-agent:latest go run cmd/app/main.go
+REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_TEMPLATE_GIT_URL=https://github.com/nightwhite/Agent-Hub-Template.git go run cmd/app/main.go
 ```
 
 前端联调入口文档见：
@@ -152,6 +152,7 @@ REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-
 - `INGRESS_SUFFIX`：默认 `agent.usw-1.sealos.app`
 - `AGENT_IMAGE`：默认 `nousresearch/hermes-agent:latest`
 - `AGENT_MANIFEST_TEMPLATE_DIR`：模板目录根路径（容器建议值 `/app/template`，本地默认自动探测仓库内 `template/`）
+- `AGENT_TEMPLATE_GIT_URL`：外部 Agent 模板 Git 地址；配置后 `GET /api/v1/templates` 与创建链路优先读取该仓库的 `registry/agents.yaml`、`agents/<id>/index.json`、`deploy.yaml`、`config.json`、`config.sh`
 - `AIPROXY_BASE_URL`：AIProxy token 管理地址，默认 `https://aiproxy-web.hzh.sealos.run`
 - `K8S_PROXY_ALLOWED_HOSTS`：K8s API 反向代理允许的目标主机白名单（逗号分隔，支持精确主机或 `.suffix` 后缀规则），默认 `.sealos.io,.sealos.run`
 - `REGION`：模型预设区域，支持 `us` / `cn`，必须显式配置
@@ -160,6 +161,8 @@ REGION=us INGRESS_SUFFIX=agent.usw-1.sealos.app AGENT_IMAGE=nousresearch/hermes-
 说明：
 - 本地开发统一使用 `backend/.env`
 - `.env` 只用于本地开发；Sealos 线上部署仍然使用 Deployment `env`
+- 未配置 `AGENT_TEMPLATE_GIT_URL` 时继续使用仓库内置 `template/`；配置后后端会缓存 Git 仓库，并用外部模板中的镜像、启动参数、工作目录和端口生成 Devbox 资源
+- GitHub 模板仓库中 `agent-hub/<name>:<tag>` 镜像会映射为 `ghcr.io/<owner>/<name>:<tag>`；例如 `https://github.com/nightwhite/Agent-Hub-Template` 下的 `agent-hub/openclaw:dev` 会部署为 `ghcr.io/nightwhite/openclaw:dev`
 - `AIPROXY_BASE_URL` 只用于后端访问 AIProxy token 管理接口
 - Hermes 部署时写入 `agent-model-baseurl` 的模型地址，不走这个配置
 - 当前前后端会根据集群地址自动推导模型地址，例如 `https://usw-1.sealos.io:6443` 会推导为 `https://aiproxy.usw-1.sealos.io/v1`

@@ -15,6 +15,7 @@
 | 202604181920 | agent_hub_generic_workspace_settings_foundation | 重构 | ✅已完成 | [2026-04/202604181920_agent_hub_generic_workspace_settings_foundation](2026-04/202604181920_agent_hub_generic_workspace_settings_foundation/) |
 | 202604232205 | stream_v2_ultra_smooth | 重构 | [-]未执行 | [2026-04/202604232205_stream_v2_ultra_smooth](2026-04/202604232205_stream_v2_ultra_smooth/) |
 | 202604240003 | console_deep_perf_stability | 重构 | ✅已完成 | [2026-04/202604240003_console_deep_perf_stability](2026-04/202604240003_console_deep_perf_stability/) |
+| 202604270024 | external_template_git_source | 功能 | ✅已完成 | [2026-04/202604270024_external_template_git_source](2026-04/202604270024_external_template_git_source/) |
 
 ---
 
@@ -29,3 +30,4 @@
 - [202604181920_agent_hub_generic_workspace_settings_foundation](2026-04/202604181920_agent_hub_generic_workspace_settings_foundation/) - 补齐工作区契约、schema 驱动设置写入与内嵌 Web UI 工作区
 - [202604232205_stream_v2_ultra_smooth](2026-04/202604232205_stream_v2_ultra_smooth/) - 遗留方案迁移归档（未执行完成）
 - [202604240003_console_deep_perf_stability](2026-04/202604240003_console_deep_perf_stability/) - 控制台深层性能与稳定性治理（含 perf smoke 基线）
+- [202604270024_external_template_git_source](2026-04/202604270024_external_template_git_source/) - 接入外部 Agent 模板 Git 源并用外部镜像渲染部署资源

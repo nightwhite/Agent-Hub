@@ -161,6 +161,57 @@ func TestBuildWithManagedAIProxyProviderClearsOpenAIBaseURL(t *testing.T) {
 	}
 }
 
+func TestBuildSupportsGenericDevboxTemplateOptions(t *testing.T) {
+	t.Parallel()
+
+	ag := agent.Agent{
+		Name:          "external-template",
+		Namespace:     "ns-test",
+		CPU:           "1000m",
+		Memory:        "2Gi",
+		Storage:       "10Gi",
+		WorkingDir:    "/workspace",
+		User:          "agent",
+		ModelProvider: "openai",
+		ModelBaseURL:  "https://api.openai.com/v1",
+		ModelAPIKey:   "secret-key",
+		Model:         "gpt-5.4",
+		APIServerKey:  "generated-api-key",
+	}
+
+	objects, err := Build(ag, BuildOptions{
+		IngressDomain: "external-template.agent.usw-1.sealos.app",
+		Image:         "agent-hub/hermes-agent:dev",
+		TemplateDir:   "../../../template/devbox-agent/manifests",
+		Port:          18789,
+		DefaultArgs:   []string{"start"},
+		WorkingDir:    "/workspace",
+		User:          "agent",
+		Env:           []EnvVar{{Name: "OPENCLAW_SKIP_CHANNELS", Value: "1"}},
+	})
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+
+	if got := envValue(objects.Devbox, "OPENCLAW_SKIP_CHANNELS"); got != "1" {
+		t.Fatalf("Build() custom env = %q, want 1", got)
+	}
+	if got := envValue(objects.Devbox, "API_SERVER_KEY"); got != ag.APIServerKey {
+		t.Fatalf("Build() API_SERVER_KEY = %q, want generated key", got)
+	}
+	configUser, _, _ := unstructured.NestedString(objects.Devbox.Object, "spec", "config", "user")
+	if configUser != "agent" {
+		t.Fatalf("Build() generic user = %q, want agent", configUser)
+	}
+	workingDir, _, _ := unstructured.NestedString(objects.Devbox.Object, "spec", "config", "workingDir")
+	if workingDir != "/workspace" {
+		t.Fatalf("Build() generic workingDir = %q, want /workspace", workingDir)
+	}
+	if got := objects.Service.Spec.Ports[0].Port; got != 18789 {
+		t.Fatalf("Build() service port = %d, want 18789", got)
+	}
+}
+
 func TestEnvValueReturnsEmptyStringWhenValueMissing(t *testing.T) {
 	t.Parallel()
 
