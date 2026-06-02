@@ -1758,6 +1758,11 @@ func syncDevboxModelAccessEnv(devbox *unstructured.Unstructured) {
 	}
 
 	apiKey := readDevboxEnvValue(devbox, "AGENT_MODEL_APIKEY")
+	if isCowAgentDevbox(devbox) {
+		syncCowAgentModelAccessEnv(devbox, modelProvider, modelBaseURL, apiKey)
+		return
+	}
+
 	hermesProvider := normalizeHermesProvider(modelProvider)
 	_ = kube.SetEnvValue(devbox, "HERMES_INFERENCE_PROVIDER", hermesProvider)
 
@@ -1771,6 +1776,55 @@ func syncDevboxModelAccessEnv(devbox *unstructured.Unstructured) {
 	_ = kube.SetEnvValue(devbox, "OPENAI_BASE_URL", modelBaseURL)
 	_ = kube.SetEnvValue(devbox, "OPENAI_API_KEY", apiKey)
 	_ = kube.SetEnvValue(devbox, "AIPROXY_API_KEY", "")
+}
+
+func syncCowAgentModelAccessEnv(devbox *unstructured.Unstructured, modelProvider, modelBaseURL, apiKey string) {
+	apiMode := normalizeAgentModelAPIMode(strings.TrimSpace(devbox.GetAnnotations()["agent.sealos.io/model-api-mode"]))
+	if apiMode == "" {
+		apiMode = normalizeAgentModelAPIMode(readDevboxEnvValue(devbox, "AGENT_MODEL_API_MODE"))
+	}
+	if apiMode == "" && isCowAgentAnthropicProvider(modelProvider) {
+		apiMode = "anthropic_messages"
+	}
+	_ = kube.SetEnvValue(devbox, "AGENT_MODEL_API_MODE", apiMode)
+
+	if apiMode == "anthropic_messages" {
+		baseURL := modelBaseURL
+		if isAIProxyHermesProvider(modelProvider) {
+			baseURL = resolveAIProxyProviderBaseURL(modelBaseURL, "", aiproxyAnthropicProvider)
+		}
+		_ = kube.SetEnvValue(devbox, "CLAUDE_API_KEY", apiKey)
+		_ = kube.SetEnvValue(devbox, "CLAUDE_API_BASE", baseURL)
+		_ = kube.SetEnvValue(devbox, "OPEN_AI_API_KEY", "")
+		_ = kube.SetEnvValue(devbox, "OPEN_AI_API_BASE", "")
+		_ = kube.SetEnvValue(devbox, "OPENAI_API_KEY", "")
+		_ = kube.SetEnvValue(devbox, "OPENAI_BASE_URL", "")
+		_ = kube.SetEnvValue(devbox, "AIPROXY_API_KEY", "")
+		return
+	}
+
+	baseURL := modelBaseURL
+	if isAIProxyHermesProvider(modelProvider) {
+		baseURL = normalizeAgentModelSyncBaseURL(modelProvider, "aiproxy", modelBaseURL)
+	} else if strings.EqualFold(strings.TrimSpace(modelProvider), "custom") {
+		baseURL = normalizeAIProxyModelBaseURL(modelBaseURL)
+	}
+	_ = kube.SetEnvValue(devbox, "OPEN_AI_API_KEY", apiKey)
+	_ = kube.SetEnvValue(devbox, "OPEN_AI_API_BASE", baseURL)
+	_ = kube.SetEnvValue(devbox, "OPENAI_API_KEY", apiKey)
+	_ = kube.SetEnvValue(devbox, "OPENAI_BASE_URL", baseURL)
+	_ = kube.SetEnvValue(devbox, "CLAUDE_API_KEY", "")
+	_ = kube.SetEnvValue(devbox, "CLAUDE_API_BASE", "")
+	_ = kube.SetEnvValue(devbox, "AIPROXY_API_KEY", "")
+}
+
+func isCowAgentAnthropicProvider(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "anthropic", aiproxyAnthropicProvider:
+		return true
+	default:
+		return false
+	}
 }
 
 func readDevboxEnvValue(devbox *unstructured.Unstructured, name string) string {
