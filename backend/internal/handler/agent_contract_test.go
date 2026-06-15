@@ -235,7 +235,7 @@ func TestBuildAgentContractDisablesRuntimeAccessWhenPaused(t *testing.T) {
 	}
 }
 
-func TestBuildAgentContractEnablesWebUIWhenIngressIsReadyBeforeBootstrap(t *testing.T) {
+func TestBuildAgentContractDisablesWebUIBeforeBootstrapReady(t *testing.T) {
 	t.Parallel()
 
 	contract, contractErr := buildAgentContract(kube.AgentView{
@@ -269,14 +269,14 @@ func TestBuildAgentContractEnablesWebUIWhenIngressIsReadyBeforeBootstrap(t *test
 		accessByKey[item.Key] = item
 	}
 	webUI := accessByKey["web-ui"]
-	if !webUI.Enabled {
-		t.Fatalf("web-ui enabled = false, want true when ingress URL is available")
+	if webUI.Enabled {
+		t.Fatalf("web-ui enabled = true, want false before bootstrap is ready")
 	}
 	if webUI.URL != "https://agent-test.agent.usw-1.sealos.app/" {
 		t.Fatalf("web-ui URL = %q, want ingress URL", webUI.URL)
 	}
-	if webUI.Reason != "" {
-		t.Fatalf("web-ui reason = %q, want empty", webUI.Reason)
+	if webUI.Reason != "running_template_bootstrap" {
+		t.Fatalf("web-ui reason = %q, want running_template_bootstrap", webUI.Reason)
 	}
 	api := accessByKey["api"]
 	if api.Enabled {
@@ -293,11 +293,14 @@ func TestBuildAgentContractEnablesWebUIWhenIngressIsReadyBeforeBootstrap(t *test
 	if len(contract.Workspaces) != 1 {
 		t.Fatalf("workspaces len = %d, want 1", len(contract.Workspaces))
 	}
-	if !contract.Workspaces[0].Enabled {
-		t.Fatalf("web-ui workspace enabled = false, want true")
+	if contract.Workspaces[0].Enabled {
+		t.Fatalf("web-ui workspace enabled = true, want false before bootstrap is ready")
 	}
 	if contract.Workspaces[0].URL != webUI.URL {
 		t.Fatalf("web-ui workspace URL = %q, want %q", contract.Workspaces[0].URL, webUI.URL)
+	}
+	if contract.Workspaces[0].Reason != "running_template_bootstrap" {
+		t.Fatalf("web-ui workspace reason = %q, want running_template_bootstrap", contract.Workspaces[0].Reason)
 	}
 }
 
