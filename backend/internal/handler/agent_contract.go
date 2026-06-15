@@ -522,7 +522,7 @@ func validateAgentIngressDomain(host, ingressSuffix string) *appErr.AppError {
 	if ip := net.ParseIP(normalizedHost); ip != nil {
 		return appErr.New(appErr.CodeKubernetesOperation, "agent ingress domain is invalid")
 	}
-	if normalizedHost != normalizedSuffix && strings.HasSuffix(normalizedHost, "."+normalizedSuffix) {
+	if normalizedHost != normalizedSuffix && (strings.HasSuffix(normalizedHost, "."+normalizedSuffix) || strings.HasSuffix(normalizedHost, "-"+normalizedSuffix)) {
 		return nil
 	}
 	return appErr.New(appErr.CodeKubernetesOperation, "agent ingress domain does not match configured suffix").WithDetails(map[string]any{

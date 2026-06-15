@@ -87,6 +87,10 @@ func TestValidateAgentIngressDomainRequiresConfiguredSuffix(t *testing.T) {
 			host:   "demo-agent.agent.usw-1.sealos.app",
 			suffix: "agent.usw-1.sealos.app",
 		},
+		"allows generated hyphen-prefixed agent domain": {
+			host:   "lp0bmwmd-agent.usw-1.sealos.app",
+			suffix: "agent.usw-1.sealos.app",
+		},
 		"rejects lookalike suffix": {
 			host:    "demo-agent.agent.usw-1.sealos.app.evil.example",
 			suffix:  "agent.usw-1.sealos.app",
@@ -364,6 +368,89 @@ func TestListManagedIngressDomainsIncludesSealosAppManagerIngresses(t *testing.T
 	}
 	if got := domains["lp0bmwmd"]; got != "lp0bmwmd.agent.usw-1.sealos.app" {
 		t.Fatalf("domains[lp0bmwmd] = %q, want ingress host", got)
+	}
+}
+
+func TestListManagedIngressDomainsUsesSealosAppManagerAsAgentName(t *testing.T) {
+	t.Parallel()
+
+	clientset := k8sfake.NewSimpleClientset(&networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ingress-test",
+			Namespace: "ns-test",
+			Labels: map[string]string{
+				"cloud.sealos.io/app-deploy-manager":        "lp0bmwmd",
+				"cloud.sealos.io/app-deploy-manager-domain": "random-domain.agent.usw-1.sealos.app",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{Host: "random-domain.agent.usw-1.sealos.app"},
+			},
+		},
+	})
+
+	domains, err := listManagedIngressDomains(context.Background(), clientset, "ns-test")
+	if err != nil {
+		t.Fatalf("listManagedIngressDomains() error = %v, want nil", err)
+	}
+	if got := domains["lp0bmwmd"]; got != "random-domain.agent.usw-1.sealos.app" {
+		t.Fatalf("domains[lp0bmwmd] = %q, want ingress host for manager label", got)
+	}
+}
+
+func TestListManagedIngressDomainsKeepsLegacyManagedIngresses(t *testing.T) {
+	t.Parallel()
+
+	clientset := k8sfake.NewSimpleClientset(&networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "legacy-agent",
+			Namespace: "ns-test",
+			Labels: map[string]string{
+				"agent.sealos.io/name":       "legacy-agent",
+				"agent.sealos.io/managed-by": "agent-hub-backend",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{Host: "legacy-agent.agent.usw-1.sealos.app"},
+			},
+		},
+	})
+
+	domains, err := listManagedIngressDomains(context.Background(), clientset, "ns-test")
+	if err != nil {
+		t.Fatalf("listManagedIngressDomains() error = %v, want nil", err)
+	}
+	if got := domains["legacy-agent"]; got != "legacy-agent.agent.usw-1.sealos.app" {
+		t.Fatalf("domains[legacy-agent] = %q, want legacy ingress host", got)
+	}
+}
+
+func TestListManagedIngressDomainsIgnoresIngressWithoutAgentMapping(t *testing.T) {
+	t.Parallel()
+
+	clientset := k8sfake.NewSimpleClientset(&networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "unrelated",
+			Namespace: "ns-test",
+			Labels: map[string]string{
+				"agent.sealos.io/managed-by": "agent-hub-backend",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{Host: "unrelated.agent.usw-1.sealos.app"},
+			},
+		},
+	})
+
+	domains, err := listManagedIngressDomains(context.Background(), clientset, "ns-test")
+	if err != nil {
+		t.Fatalf("listManagedIngressDomains() error = %v, want nil", err)
+	}
+	if len(domains) != 0 {
+		t.Fatalf("domains len = %d, want 0 for ingress without agent mapping", len(domains))
 	}
 }
 
