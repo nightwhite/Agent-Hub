@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -13,6 +14,9 @@ import (
 	"github.com/nightwhite/Agent-Hub/internal/dto"
 	"github.com/nightwhite/Agent-Hub/internal/kube"
 	appErr "github.com/nightwhite/Agent-Hub/pkg/errors"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
 func TestGenerateSSHAccessTokenUsesOneHourTTL(t *testing.T) {
@@ -329,6 +333,34 @@ func TestBuildAgentContractDisablesWebUIWhenRuntimeIsDeleting(t *testing.T) {
 	}
 	if webUI.Status != "pending" {
 		t.Fatalf("web-ui status = %q, want pending", webUI.Status)
+	}
+}
+
+func TestListManagedIngressDomainsIncludesSealosAppManagerIngresses(t *testing.T) {
+	t.Parallel()
+
+	clientset := k8sfake.NewSimpleClientset(&networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "lp0bmwmd",
+			Namespace: "ns-test",
+			Labels: map[string]string{
+				"cloud.sealos.io/app-deploy-manager":        "lp0bmwmd",
+				"cloud.sealos.io/app-deploy-manager-domain": "lp0bmwmd.agent.usw-1.sealos.app",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{Host: "lp0bmwmd.agent.usw-1.sealos.app"},
+			},
+		},
+	})
+
+	domains, err := listManagedIngressDomains(context.Background(), clientset, "ns-test")
+	if err != nil {
+		t.Fatalf("listManagedIngressDomains() error = %v, want nil", err)
+	}
+	if got := domains["lp0bmwmd"]; got != "lp0bmwmd.agent.usw-1.sealos.app" {
+		t.Fatalf("domains[lp0bmwmd] = %q, want ingress host", got)
 	}
 }
 

@@ -1243,7 +1243,7 @@ func enrichIngressDomain(ctx context.Context, clientset kubernetes.Interface, vi
 
 func listManagedIngressDomains(ctx context.Context, clientset kubernetes.Interface, namespace string) (map[string]string, error) {
 	ingresses, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: kube.ManagedListSelector(),
+		LabelSelector: "cloud.sealos.io/app-deploy-manager",
 	})
 	if err != nil {
 		return nil, err
@@ -1252,10 +1252,7 @@ func listManagedIngressDomains(ctx context.Context, clientset kubernetes.Interfa
 	domains := make(map[string]string, len(ingresses.Items))
 	for i := range ingresses.Items {
 		ing := ingresses.Items[i]
-		agentName := strings.TrimSpace(ing.GetLabels()["agent.sealos.io/name"])
-		if agentName == "" {
-			agentName = strings.TrimSpace(ing.GetName())
-		}
+		agentName := strings.TrimSpace(ing.GetLabels()["cloud.sealos.io/app-deploy-manager"])
 		if agentName == "" {
 			continue
 		}
